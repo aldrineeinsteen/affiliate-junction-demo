@@ -11,25 +11,69 @@ This project also includes a WUI with views application to a number of distinct 
 
 
 
+## WUI
 
-## Services
+This project includes a custom web UI that showcases how a customer can leverage the data endpoints to insights based on both realtime data stored within the Hyperconverged Database (Cassandra) and the Data Lake (Presto / Iceberg).
+
+
+
+
+##  wx.d Interface
+
+You may access the watsonx.data to issue ad-hoc queries.  
+
+
+### Single Datasource Operations
+
+View data from our RT tables hosted in HCD
+
+```
+-- Show avertiser impressions on each publisher's site bucketed by timestamp
+SELECT * FROM  hcd.affiliate_junction.conversion_tracking LIMIT 10;
+
+-- Show advertiser conversions
+SELECT * FROM  hcd.affiliate_junction.conversion_tracking LIMIT 10;
+
+```
+
+View historical data view Presto.  This SQL interface supports more powerful data manipulation
+
+```
+# TODO
+```
+
+
+### Cross-Datasource Operations
+
+The real power of watsonx.data is executing federated queries across diverse datasources.
+
+```
+# TODO
+```
+
+
+
+## Troubleshooting
+
+
+### Services
 
 Backend ops are python scripts managed by `systemd` with unit files.
 
 ```
 # Service ops for traffic generater
-sudo systemctl start traffic_generator
-sudo systemctl status traffic_generator
-sudo systemctl restart traffic_generator
+sudo systemctl start generate_traffic
+sudo systemctl status generate_traffic
+sudo systemctl restart generate_traffic
 
-# View log files for traffic generator
-journalctl -u traffic_generator -f
+# View log files for generate_traffic
+journalctl -u generate_traffic -f
 
 ```
 
 
 
-## HCD CQL Console Access
+### HCD CQL Console Access
 
 Access `cqlsh` via `ssh` as the `watsonx` user with the command:
 

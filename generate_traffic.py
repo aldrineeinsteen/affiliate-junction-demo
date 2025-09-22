@@ -5,6 +5,7 @@ import sys
 import time
 import logging
 import random
+import subprocess
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from cassandra.cluster import Cluster, ExecutionProfile
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 class SyntheticTrafficGenerator:
     def __init__(self):
         self.cassandra_session = None
+        self.script_dir = os.path.dirname(os.path.abspath(__file__))
         self.load_environment()
         
         # Generate indexes of string IDs for advertisers and publishers
@@ -42,6 +44,105 @@ class SyntheticTrafficGenerator:
         except Exception as e:
             logger.error(f"Failed to load environment variables: {e}")
             sys.exit(1)
+    
+    def execute_schema(self):
+        """Execute the Cassandra schema file to create keyspace and tables"""
+        try:
+            schema_file_path = os.path.join(self.script_dir, 'hcd_schema.cql')
+            
+            if not os.path.exists(schema_file_path):
+                logger.error(f"Schema file not found at: {schema_file_path}")
+                raise FileNotFoundError(f"Schema file not found: {schema_file_path}")
+            
+            logger.info(f"Executing schema file: {schema_file_path}")
+            
+            # First try using cqlsh
+            try:
+                self._execute_schema_with_cqlsh(schema_file_path)
+                return
+            except Exception as e:
+                logger.warning(f"cqlsh execution failed: {e}. Trying direct Cassandra session approach...")
+            
+            # Fallback to direct Cassandra session execution
+            self._execute_schema_with_session(schema_file_path)
+                
+        except Exception as e:
+            logger.error(f"Failed to execute schema: {e}")
+            raise
+    
+    def _execute_schema_with_cqlsh(self, schema_file_path):
+        """Execute schema using cqlsh command"""
+        # Build cqlsh command
+        cmd = ['cqlsh']
+        
+        # Add host and port
+        cmd.extend(['-e', f"SOURCE '{schema_file_path}';"])
+        cmd.extend([os.getenv('HCD_HOST', 'localhost')])
+        cmd.append(str(os.getenv('HCD_PORT', '9042')))
+        
+        # Add authentication if provided
+        if os.getenv('HCD_USER') and os.getenv('HCD_PASSWD'):
+            cmd.extend(['-u', os.getenv('HCD_USER')])
+            cmd.extend(['-p', os.getenv('HCD_PASSWD')])
+        
+        # Execute the command
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        if result.returncode == 0:
+            logger.info("Schema executed successfully with cqlsh")
+            if result.stdout:
+                logger.debug(f"cqlsh output: {result.stdout}")
+        else:
+            logger.error(f"cqlsh execution failed with return code {result.returncode}")
+            if result.stderr:
+                logger.error(f"cqlsh error: {result.stderr}")
+            raise RuntimeError(f"cqlsh execution failed: {result.stderr}")
+    
+    def _execute_schema_with_session(self, schema_file_path):
+        """Execute schema using direct Cassandra session"""
+        logger.info("Executing schema using direct Cassandra session")
+        
+        # Create a temporary connection just for schema execution
+        auth_provider = None
+        if os.getenv('HCD_USER') and os.getenv('HCD_PASSWD'):
+            auth_provider = PlainTextAuthProvider(
+                username=os.getenv('HCD_USER'),
+                password=os.getenv('HCD_PASSWD')
+            )
+        
+        profile = ExecutionProfile(
+            load_balancing_policy=DCAwareRoundRobinPolicy(local_dc=os.getenv('HCD_DATACENTER')),
+            request_timeout=10
+        )
+        
+        cluster = Cluster(
+            [os.getenv('HCD_HOST', 'localhost')],
+            port=int(os.getenv('HCD_PORT', '9042')),
+            auth_provider=auth_provider,
+            protocol_version=5,
+            execution_profiles={'default': profile}
+        )
+        
+        temp_session = cluster.connect()
+        
+        try:
+            # Read and execute the schema file
+            with open(schema_file_path, 'r') as f:
+                schema_content = f.read()
+            
+            # Split statements by semicolon and execute each one
+            statements = [stmt.strip() for stmt in schema_content.split(';') if stmt.strip()]
+            
+            for statement in statements:
+                if statement:
+                    logger.debug(f"Executing statement: {statement[:100]}...")
+                    temp_session.execute(statement)
+            
+            logger.info("Schema executed successfully with direct session")
+            
+        finally:
+            temp_session.shutdown()
+            cluster.shutdown()
     
     def get_random_cookie_id(self):
         """Get a random cookie ID from the predefined pool"""
@@ -220,6 +321,9 @@ class SyntheticTrafficGenerator:
         """Main execution loop"""
         try:
             logger.info("Starting Synthetic Traffic Generator")
+            
+            # Execute schema before connecting to Cassandra
+            self.execute_schema()
             
             # Connect to databases
             self.connect_to_cassandra()
