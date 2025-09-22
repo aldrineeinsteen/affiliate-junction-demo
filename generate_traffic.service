@@ -1,0 +1,13 @@
+[Unit]
+Description=Generate Traffic
+After=network.target
+
+
+[Service]
+Type=simple
+ExecStart=/home/watsonx/affiliate-junction-demo/.venv/bin/python /home/watsonx/affiliate-junction-demo/generate_traffic.py
+Restart=on-failure
+User=watsonx
+
+[Install]
+WantedBy=multi-user.target
