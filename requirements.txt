@@ -5,6 +5,7 @@ python-dotenv>=1.0.0
 cassandra-driver>=3.25.0
 
 # Presto driver
+pyspark
 presto-python-client>=0.8.0
 
 # Additional utilities (optional)

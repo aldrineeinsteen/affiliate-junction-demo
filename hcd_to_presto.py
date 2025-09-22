@@ -88,7 +88,8 @@ class AffiliateJunctionETL:
                 auth=prestodb.auth.BasicAuthentication(
                     os.getenv('PRESTO_USER'), 
                     os.getenv('PRESTO_PASSWD')
-                )
+                ),
+                verify=False
             )
             
             logger.info(f"Connected to Presto at {os.getenv('PRESTO_HOST')}:{os.getenv('PRESTO_PORT')}")
@@ -104,7 +105,12 @@ class AffiliateJunctionETL:
                 .appName("AffiliateJunctionETL") \
                 .config("spark.sql.adaptive.enabled", "true") \
                 .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
+                .config("spark.hadoop.native.lib", "false") \
+                .config("spark.sql.execution.arrow.pyspark.enabled", "false") \
                 .getOrCreate()
+            
+            # Set log level to reduce noise
+            self.spark.sparkContext.setLogLevel("WARN")
             
             logger.info("Spark session initialized successfully")
             
@@ -127,14 +133,36 @@ class AffiliateJunctionETL:
             with open(schema_file_path, 'r') as f:
                 schema_content = f.read()
             
+            logger.info(f"Schema file content length: {len(schema_content)} characters")
+            
             # Split statements by semicolon and execute each one
             cursor = self.presto_connection.cursor()
-            statements = [stmt.strip() for stmt in schema_content.split(';') if stmt.strip() and not stmt.strip().startswith('--')]
             
-            for statement in statements:
+            # Remove comments and split by semicolons
+            lines = schema_content.split('\n')
+            cleaned_lines = []
+            for line in lines:
+                # Remove comments but keep the rest of the line
+                if '--' in line:
+                    line = line[:line.index('--')]
+                cleaned_lines.append(line)
+            
+            cleaned_content = '\n'.join(cleaned_lines)
+            statements = [stmt.strip() for stmt in cleaned_content.split(';') if stmt.strip()]
+            
+            logger.info(f"Found {len(statements)} SQL statements to execute")
+            
+            for i, statement in enumerate(statements, 1):
                 if statement:
-                    logger.debug(f"Executing Presto statement: {statement[:100]}...")
-                    cursor.execute(statement)
+                    logger.info(f"Executing statement {i}/{len(statements)}: {statement[:100]}...")
+                    try:
+                        cursor.execute(statement)
+                        result = cursor.fetchall()
+                        logger.info(f"Statement {i} executed successfully. Result: {result}")
+                    except Exception as stmt_error:
+                        logger.error(f"Error executing statement {i}: {stmt_error}")
+                        logger.error(f"Statement was: {statement}")
+                        raise
             
             cursor.close()
             logger.info("Presto schema executed successfully")
@@ -205,6 +233,7 @@ class AffiliateJunctionETL:
             
             # Execute Presto schema
             self.execute_presto_schema()
+            sys.exit()
             
             logger.info("Entering main loop...")
             
