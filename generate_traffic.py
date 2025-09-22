@@ -4,7 +4,6 @@ import os
 import sys
 import time
 import logging
-import uuid
 import random
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -25,9 +24,12 @@ class SyntheticTrafficGenerator:
         self.cassandra_session = None
         self.load_environment()
         
-        # Generate indexes of UUIDs for advertisers and publishers
-        self.advertisers = [uuid.uuid4() for _ in range(int(os.getenv('AFFILIATE_JUNCTION_ADVERTISERS_COUNT')))]
-        self.publishers = [uuid.uuid4() for _ in range(int(os.getenv('AFFILIATE_JUNCTION_PUBLISHERS_COUNT')))]
+        # Generate indexes of string IDs for advertisers and publishers
+        self.advertisers = [f"AID_{i+1:06d}" for i in range(int(os.getenv('AFFILIATE_JUNCTION_ADVERTISERS_COUNT')))]
+        self.publishers = [f"PID_{i+1:06d}" for i in range(int(os.getenv('AFFILIATE_JUNCTION_PUBLISHERS_COUNT')))]
+        
+        # Initialize cookie ID counter
+        self.cookie_counter = 0
         
         logger.info(f"Generated {len(self.advertisers)} advertisers and {len(self.publishers)} publishers")
         
@@ -40,6 +42,11 @@ class SyntheticTrafficGenerator:
         except Exception as e:
             logger.error(f"Failed to load environment variables: {e}")
             sys.exit(1)
+    
+    def generate_cookie_id(self):
+        """Generate a unique cookie ID"""
+        self.cookie_counter += 1
+        return f"CID_{self.cookie_counter:06d}"
     
     def connect_to_cassandra(self):
         """Establish connection to Cassandra cluster"""
@@ -83,20 +90,22 @@ class SyntheticTrafficGenerator:
     def prepare_statements(self):
         """Prepare Cassandra statements for data insertion"""
         try:
-            # Prepare statement for impression tracking
-            self.impression_insert_stmt = self.cassandra_session.prepare("""
+            # Prepare statement for impression tracking with configurable TTL
+            self.impression_insert_stmt = self.cassandra_session.prepare(f"""
                 UPDATE impression_tracking 
                 SET impressions = impressions + ? 
                 WHERE publishers_id = ? AND cookie_id = ? AND timestamp = ? AND advertisers_id = ?
+                USING TTL {int(os.getenv('AFFILIATE_JUNCTION_HISTORY_MINS')) * 60}
             """)
             
-            # Prepare statement for conversion tracking
-            self.conversion_insert_stmt = self.cassandra_session.prepare("""
+            # Prepare statement for conversion tracking with configurable TTL
+            self.conversion_insert_stmt = self.cassandra_session.prepare(f"""
                 INSERT INTO conversion_tracking (advertisers_id, timestamp, cookie_id) 
                 VALUES (?, ?, ?)
+                USING TTL {int(os.getenv('AFFILIATE_JUNCTION_HISTORY_MINS')) * 60}
             """)
             
-            logger.info("Prepared statements for data insertion")
+            logger.info(f"Prepared statements for data insertion with {os.getenv('AFFILIATE_JUNCTION_HISTORY_MINS')}-minute TTL")
             
         except Exception as e:
             logger.error(f"Failed to prepare statements: {e}")
@@ -115,7 +124,7 @@ class SyntheticTrafficGenerator:
         for _ in range(int(os.getenv('AFFILIATE_JUNCTION_TRAFFIC_MIN'))):
             publisher_id = random.choice(self.publishers)
             advertiser_id = random.choice(self.advertisers)
-            cookie_id = uuid.uuid4()
+            cookie_id = self.generate_cookie_id()
             
             impression_data.append({
                 'publishers_id': publisher_id,
@@ -129,7 +138,7 @@ class SyntheticTrafficGenerator:
         conversion_data = []
         for _ in range(int(os.getenv('AFFILIATE_JUNCTION_SALES_MIN'))):
             advertiser_id = random.choice(self.advertisers)
-            cookie_id = uuid.uuid4()
+            cookie_id = self.generate_cookie_id()
             
             conversion_data.append({
                 'advertisers_id': advertiser_id,
@@ -200,12 +209,19 @@ class SyntheticTrafficGenerator:
             
             while True:
                 try:
+                    # Record start time for this iteration
+                    iteration_start = time.time()
+                    
                     # Generate and process synthetic data
                     self.generate_synthetic_data()
                     
-                    # Sleep for 60 seconds (1 minute)
-                    logger.info("Sleeping for 60 seconds until next traffic generation...")
-                    time.sleep(60)
+                    # Calculate how long the data generation took
+                    execution_time = time.time() - iteration_start
+                    
+                    # Sleep for the remaining time to maintain 60-second intervals
+                    sleep_time = max(0, 60 - execution_time)
+                    logger.info(f"Data generation took {execution_time:.2f} seconds. Sleeping for {sleep_time:.2f} seconds until next traffic generation...")
+                    time.sleep(sleep_time)
                     
                 except KeyboardInterrupt:
                     logger.info("Received interrupt signal, shutting down...")
