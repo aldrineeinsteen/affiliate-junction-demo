@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS impression_tracking (
     cookie_id TEXT,
     advertisers_id TEXT,
     timestamp TIMESTAMP,
-    impressions COUNTER,
-    PRIMARY KEY ((publishers_id, cookie_id), timestamp, advertisers_id)
+    impressions INT,
+    PRIMARY KEY ((publishers_id, cookie_id), advertisers_id, timestamp)
 ) WITH CLUSTERING ORDER BY (timestamp DESC);
 
 -- Create conversion tracking table

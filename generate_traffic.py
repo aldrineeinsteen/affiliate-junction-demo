@@ -28,10 +28,10 @@ class SyntheticTrafficGenerator:
         self.advertisers = [f"AID_{i+1:06d}" for i in range(int(os.getenv('AFFILIATE_JUNCTION_ADVERTISERS_COUNT')))]
         self.publishers = [f"PID_{i+1:06d}" for i in range(int(os.getenv('AFFILIATE_JUNCTION_PUBLISHERS_COUNT')))]
         
-        # Initialize cookie ID counter
-        self.cookie_counter = 0
+        # Generate pool of cookie IDs based on environment variable
+        self.cookie_ids = [f"CID_{i+1:06d}" for i in range(int(os.getenv('AFFILIATE_JUNCTION_COOKIES_COUNT')))]
         
-        logger.info(f"Generated {len(self.advertisers)} advertisers and {len(self.publishers)} publishers")
+        logger.info(f"Generated {len(self.advertisers)} advertisers, {len(self.publishers)} publishers, and {len(self.cookie_ids)} cookie IDs")
         
     def load_environment(self):
         """Load environment variables from .env file"""
@@ -43,10 +43,9 @@ class SyntheticTrafficGenerator:
             logger.error(f"Failed to load environment variables: {e}")
             sys.exit(1)
     
-    def generate_cookie_id(self):
-        """Generate a unique cookie ID"""
-        self.cookie_counter += 1
-        return f"CID_{self.cookie_counter:06d}"
+    def get_random_cookie_id(self):
+        """Get a random cookie ID from the predefined pool"""
+        return random.choice(self.cookie_ids)
     
     def connect_to_cassandra(self):
         """Establish connection to Cassandra cluster"""
@@ -90,17 +89,16 @@ class SyntheticTrafficGenerator:
     def prepare_statements(self):
         """Prepare Cassandra statements for data insertion"""
         try:
-            # Prepare statement for impression tracking with configurable TTL
+            # Prepare statement for impression tracking insert/update (will overwrite if exists)
             self.impression_insert_stmt = self.cassandra_session.prepare(f"""
-                UPDATE impression_tracking 
-                SET impressions = impressions + ? 
-                WHERE publishers_id = ? AND cookie_id = ? AND timestamp = ? AND advertisers_id = ?
+                INSERT INTO {os.getenv('HCD_KEYSPACE')}.impression_tracking (publishers_id, cookie_id, timestamp, advertisers_id, impressions) 
+                VALUES (?, ?, ?, ?, ?)
                 USING TTL {int(os.getenv('AFFILIATE_JUNCTION_HISTORY_MINS')) * 60}
             """)
             
             # Prepare statement for conversion tracking with configurable TTL
             self.conversion_insert_stmt = self.cassandra_session.prepare(f"""
-                INSERT INTO conversion_tracking (advertisers_id, timestamp, cookie_id) 
+                INSERT INTO {os.getenv('HCD_KEYSPACE')}.conversion_tracking (advertisers_id, timestamp, cookie_id) 
                 VALUES (?, ?, ?)
                 USING TTL {int(os.getenv('AFFILIATE_JUNCTION_HISTORY_MINS')) * 60}
             """)
@@ -119,26 +117,37 @@ class SyntheticTrafficGenerator:
         now = datetime.now(timezone.utc)
         clipped_timestamp = now.replace(second=0, microsecond=0)
         
-        # Generate impression tracking data
-        impression_data = []
+        # Aggregate impression data by key (publishers_id, cookie_id, timestamp)
+        impression_aggregates = {}
         for _ in range(int(os.getenv('AFFILIATE_JUNCTION_TRAFFIC_MIN'))):
             publisher_id = random.choice(self.publishers)
             advertiser_id = random.choice(self.advertisers)
-            cookie_id = self.generate_cookie_id()
+            cookie_id = self.get_random_cookie_id()
             
-            impression_data.append({
-                'publishers_id': publisher_id,
-                'cookie_id': cookie_id,
-                'advertisers_id': advertiser_id,
-                'timestamp': clipped_timestamp,
-                'impressions': 1
-            })
+            # Create a composite key for aggregation
+            key = (publisher_id, cookie_id, clipped_timestamp)
+            
+            if key in impression_aggregates:
+                # Increment the count for this key
+                impression_aggregates[key]['impressions'] += 1
+            else:
+                # Create new entry for this key
+                impression_aggregates[key] = {
+                    'publishers_id': publisher_id,
+                    'cookie_id': cookie_id,
+                    'timestamp': clipped_timestamp,
+                    'advertisers_id': advertiser_id,
+                    'impressions': 1
+                }
+        
+        # Convert aggregated data to list
+        impression_data = list(impression_aggregates.values())
         
         # Generate conversion tracking data
         conversion_data = []
         for _ in range(int(os.getenv('AFFILIATE_JUNCTION_SALES_MIN'))):
             advertiser_id = random.choice(self.advertisers)
-            cookie_id = self.generate_cookie_id()
+            cookie_id = self.get_random_cookie_id()
             
             conversion_data.append({
                 'advertisers_id': advertiser_id,
@@ -146,41 +155,52 @@ class SyntheticTrafficGenerator:
                 'cookie_id': cookie_id
             })
         
-        logger.info(f"Generated {len(impression_data)} impression records and {len(conversion_data)} conversion records")
+        logger.info(f"Generated {len(impression_data)} aggregated impression records ({sum(record['impressions'] for record in impression_data)} total impressions) and {len(conversion_data)} conversion records")
         
         # Insert data to Cassandra
         self.insert_data_to_cassandra(impression_data, conversion_data)
     
     def insert_data_to_cassandra(self, impression_data, conversion_data):
-        """Insert data into Cassandra"""
+        """Insert data into Cassandra using batch operations"""
         try:
-            logger.info("Inserting data to Cassandra...")
+            logger.info("Inserting data to Cassandra using batch operations...")
             
-            # Insert impression tracking data
-            for record in impression_data:
-                self.cassandra_session.execute(
-                    self.impression_insert_stmt,
-                    [
-                        record['impressions'],
-                        record['publishers_id'],
-                        record['cookie_id'],
-                        record['timestamp'],
-                        record['advertisers_id']
-                    ]
-                )
+            # Use batch operations for better performance
+            from cassandra.query import BatchStatement, BatchType
             
-            # Insert conversion tracking data
-            for record in conversion_data:
-                self.cassandra_session.execute(
-                    self.conversion_insert_stmt,
-                    [
-                        record['advertisers_id'],
-                        record['timestamp'],
-                        record['cookie_id']
-                    ]
-                )
+            # Create batch statement for impression tracking data
+            if impression_data:
+                impression_batch = BatchStatement(batch_type=BatchType.UNLOGGED)
+                for record in impression_data:
+                    impression_batch.add(
+                        self.impression_insert_stmt,
+                        [
+                            record['publishers_id'],
+                            record['cookie_id'],
+                            record['timestamp'],
+                            record['advertisers_id'],
+                            record['impressions']
+                        ]
+                    )
+                self.cassandra_session.execute(impression_batch)
+                logger.info(f"Batch inserted {len(impression_data)} impression records")
             
-            logger.info(f"Successfully inserted {len(impression_data)} impression records and {len(conversion_data)} conversion records")
+            # Create batch statement for conversion tracking data
+            if conversion_data:
+                conversion_batch = BatchStatement(batch_type=BatchType.UNLOGGED)
+                for record in conversion_data:
+                    conversion_batch.add(
+                        self.conversion_insert_stmt,
+                        [
+                            record['advertisers_id'],
+                            record['timestamp'],
+                            record['cookie_id']
+                        ]
+                    )
+                self.cassandra_session.execute(conversion_batch)
+                logger.info(f"Batch inserted {len(conversion_data)} conversion records")
+            
+            logger.info(f"Successfully batch inserted {len(impression_data)} impression records and {len(conversion_data)} conversion records")
             
         except Exception as e:
             logger.error(f"Failed to insert data to Cassandra: {e}")
