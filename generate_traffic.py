@@ -5,9 +5,9 @@ import sys
 import time
 import logging
 from dotenv import load_dotenv
-from cassandra.cluster import Cluster
+from cassandra.cluster import Cluster, ExecutionProfile
 from cassandra.auth import PlainTextAuthProvider
-import prestodb
+from cassandra.policies import DCAwareRoundRobinPolicy
 
 # Configure logging
 logging.basicConfig(
@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 class SyntheticTrafficGenerator:
     def __init__(self):
         self.cassandra_session = None
-        self.presto_connection = None
         self.load_environment()
         
     def load_environment(self):
@@ -28,20 +27,6 @@ class SyntheticTrafficGenerator:
         try:
             load_dotenv()
             logger.info("Environment variables loaded successfully")
-            
-            # Cassandra configuration
-            self.cassandra_hosts = os.getenv('CASSANDRA_HOSTS', 'localhost').split(',')
-            self.cassandra_port = int(os.getenv('CASSANDRA_PORT', '9042'))
-            self.cassandra_username = os.getenv('CASSANDRA_USERNAME')
-            self.cassandra_password = os.getenv('CASSANDRA_PASSWORD')
-            self.cassandra_keyspace = os.getenv('CASSANDRA_KEYSPACE', 'affiliate_junction')
-            
-            # Presto configuration
-            self.presto_host = os.getenv('PRESTO_HOST', 'localhost')
-            self.presto_port = int(os.getenv('PRESTO_PORT', '8080'))
-            self.presto_user = os.getenv('PRESTO_USER', 'admin')
-            self.presto_catalog = os.getenv('PRESTO_CATALOG', 'cassandra')
-            self.presto_schema = os.getenv('PRESTO_SCHEMA', 'affiliate_junction')
             
         except Exception as e:
             logger.error(f"Failed to load environment variables: {e}")
@@ -51,51 +36,36 @@ class SyntheticTrafficGenerator:
         """Establish connection to Cassandra cluster"""
         try:
             auth_provider = None
-            if self.cassandra_username and self.cassandra_password:
+            if os.getenv('HCD_USER') and os.getenv('HCD_PASSWD'):
                 auth_provider = PlainTextAuthProvider(
-                    username=self.cassandra_username,
-                    password=self.cassandra_password
+                    username=os.getenv('HCD_USER'),
+                    password=os.getenv('HCD_PASSWD')
                 )
+                      
+            # Create execution profile with timeout settings
+            profile = ExecutionProfile(
+                load_balancing_policy=DCAwareRoundRobinPolicy(local_dc=os.getenv('HCD_DATACENTER')),
+                request_timeout=10
+            )
             
             cluster = Cluster(
-                self.cassandra_hosts,
-                port=self.cassandra_port,
-                auth_provider=auth_provider
+                [os.getenv('HCD_HOST', 'localhost')],
+                port=int(os.getenv('HCD_PORT', '9042')),
+                auth_provider=auth_provider,
+                protocol_version=5,
+                execution_profiles={'default': profile}
             )
             
             self.cassandra_session = cluster.connect()
             
             # Set keyspace if specified
-            if self.cassandra_keyspace:
-                self.cassandra_session.set_keyspace(self.cassandra_keyspace)
+            if os.getenv('HCD_KEYSPACE'):
+                self.cassandra_session.set_keyspace(os.getenv('HCD_KEYSPACE'))
             
-            logger.info(f"Connected to Cassandra cluster at {self.cassandra_hosts}")
+            logger.info(f"Connected to Cassandra cluster at {os.getenv('HCD_HOST', 'localhost')}:{os.getenv('HCD_PORT', '9042')}")
             
         except Exception as e:
             logger.error(f"Failed to connect to Cassandra: {e}")
-            sys.exit(1)
-    
-    def connect_to_presto(self):
-        """Establish connection to Presto"""
-        try:
-            self.presto_connection = prestodb.dbapi.connect(
-                host=self.presto_host,
-                port=self.presto_port,
-                user=self.presto_user,
-                catalog=self.presto_catalog,
-                schema=self.presto_schema
-            )
-            
-            # Test connection
-            cursor = self.presto_connection.cursor()
-            cursor.execute('SELECT 1')
-            cursor.fetchone()
-            cursor.close()
-            
-            logger.info(f"Connected to Presto at {self.presto_host}:{self.presto_port}")
-            
-        except Exception as e:
-            logger.error(f"Failed to connect to Presto: {e}")
             sys.exit(1)
     
     def generate_synthetic_data(self):
@@ -112,23 +82,12 @@ class SyntheticTrafficGenerator:
         # TODO: Implement Cassandra insert logic
         pass
     
-    def query_data_with_presto(self):
-        """Query data using Presto"""
-        # Placeholder for Presto query logic
-        logger.info("Querying data with Presto...")
-        # TODO: Implement Presto query logic
-        pass
-    
     def cleanup(self):
         """Clean up connections"""
         try:
             if self.cassandra_session:
                 self.cassandra_session.shutdown()
                 logger.info("Cassandra connection closed")
-            
-            if self.presto_connection:
-                self.presto_connection.close()
-                logger.info("Presto connection closed")
                 
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
@@ -140,7 +99,6 @@ class SyntheticTrafficGenerator:
             
             # Connect to databases
             self.connect_to_cassandra()
-            self.connect_to_presto()
             
             # Main loop - no-op for now
             logger.info("Entering main loop...")
@@ -154,7 +112,7 @@ class SyntheticTrafficGenerator:
                     logger.info("Processing synthetic traffic... (no-op)")
                     
                     # Sleep for a configurable interval
-                    sleep_interval = int(os.getenv('TRAFFIC_INTERVAL', '60'))
+                    sleep_interval = int(os.getenv('AFFILIATE_JUNCTION_HISTORY_MINS', '60'))
                     time.sleep(sleep_interval)
                     
                 except KeyboardInterrupt:
