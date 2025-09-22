@@ -1,0 +1,12 @@
+# Core dependencies
+python-dotenv>=1.0.0
+
+# Cassandra driver
+cassandra-driver>=3.25.0
+
+# Presto driver
+presto-python-client>=0.8.0
+
+# Additional utilities (optional)
+faker>=18.0.0  # For generating synthetic data
+requests>=2.31.0  # For HTTP requests if needed

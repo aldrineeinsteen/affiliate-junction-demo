@@ -1,0 +1,16 @@
+# Cassandra Configuration
+CASSANDRA_HOSTS=localhost
+CASSANDRA_PORT=9042
+CASSANDRA_USERNAME=
+CASSANDRA_PASSWORD=
+CASSANDRA_KEYSPACE=affiliate_junction
+
+# Presto Configuration
+PRESTO_HOST=localhost
+PRESTO_PORT=8080
+PRESTO_USER=admin
+PRESTO_CATALOG=cassandra
+PRESTO_SCHEMA=affiliate_junction
+
+# Traffic Generation Configuration
+TRAFFIC_INTERVAL=60  # seconds between traffic generation cycles
