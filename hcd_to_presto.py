@@ -80,43 +80,44 @@ class AffiliateJunctionETL:
     def connect_to_presto(self):
         """Establish connection to Presto"""
         try:
-            http_session = requests.Session()
-            http_session.verify = False 
+            # http_session = requests.Session()
+            # http_session.verify = False 
             
-            client_sess = prestodb.client.ClientSession(
-                user=os.getenv("PRESTO_USER"),
-                catalog=os.getenv("PRESTO_CATALOG"),
-                schema=os.getenv("PRESTO_SCHEMA"),
-                # source="my-app",
-            )
-            request = prestodb.client.PrestoRequest(
-                host=os.getenv("PRESTO_HOST"),
-                port=int(os.getenv("PRESTO_PORT")),
-                client_session=client_sess,
-                http_session=http_session,
-                http_scheme="https",
-                auth=prestodb.auth.BasicAuthentication(
-                    os.getenv("PRESTO_USER"),
-                    os.getenv("PRESTO_PASSWD"),
-                ),
-            )
+            # client_sess = prestodb.client.ClientSession(
+            #     user=os.getenv("PRESTO_USER"),
+            #     catalog=os.getenv("PRESTO_CATALOG"),
+            #     schema=os.getenv("PRESTO_SCHEMA"),
+            #     # source="my-app",
+            # )
+            # request = prestodb.client.PrestoRequest(
+            #     host=os.getenv("PRESTO_HOST"),
+            #     port=int(os.getenv("PRESTO_PORT")),
+            #     client_session=client_sess,
+            #     http_session=http_session,
+            #     http_scheme="https",
+            #     auth=prestodb.auth.BasicAuthentication(
+            #         os.getenv("PRESTO_USER"),
+            #         os.getenv("PRESTO_PASSWD"),
+            #     ),
+            # )
             
             # self.presto_connection = prestodb.dbapi.Connection(request)
             # self.presto_connection = prestodb.dbapi.connect(request=request)
-            self.presto_connection = request
+            # self.presto_connection = request
             
-            # self.presto_connection = prestodb.dbapi.connect(
-            #     host=os.getenv('PRESTO_HOST'),
-            #     port=int(os.getenv('PRESTO_PORT')),
-            #     user=os.getenv('PRESTO_USER'),
-            #     catalog=os.getenv('PRESTO_CATALOG'),
-            #     schema=os.getenv('PRESTO_SCHEMA'),
-            #     http_scheme='https',
-            #     auth=prestodb.auth.BasicAuthentication(
-            #         os.getenv('PRESTO_USER'), 
-            #         os.getenv('PRESTO_PASSWD')
-            #     )
-            # )
+            self.presto_connection = prestodb.dbapi.connect(
+                host=os.getenv('PRESTO_HOST'),
+                port=int(os.getenv('PRESTO_PORT')),
+                user=os.getenv('PRESTO_USER'),
+                catalog=os.getenv('PRESTO_CATALOG'),
+                schema=os.getenv('PRESTO_SCHEMA'),
+                http_scheme='https',
+                auth=prestodb.auth.BasicAuthentication(
+                    os.getenv('PRESTO_USER'), 
+                    os.getenv('PRESTO_PASSWD')
+                )
+            )
+            self.presto_connection._http_session.verify = "/certs/presto.crt"
             
             logger.info(f"Connected to Presto at {os.getenv('PRESTO_HOST')}:{os.getenv('PRESTO_PORT')}")
             

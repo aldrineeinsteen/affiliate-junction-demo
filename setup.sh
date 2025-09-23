@@ -1,6 +1,7 @@
 
 
 # Bootstrap infrastructure
+sudo perl -i -pe 'if($.==1 && !/ibm-lh-presto-svc/){s/$/ ibm-lh-presto-svc/}' /etc/hosts
 sudo dnf -y install java-17-openjdk java-17-openjdk-devel
 
 
