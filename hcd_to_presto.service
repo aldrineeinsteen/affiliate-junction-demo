@@ -1,0 +1,13 @@
+[Unit]
+Description=Use PySpark to move data from HCD to Presto Iceberg
+After=network.target
+
+
+[Service]
+Type=simple
+ExecStart=/home/watsonx/affiliate-junction-demo/.venv/bin/python /home/watsonx/affiliate-junction-demo/hcd_to_presto.py
+Restart=on-failure
+User=watsonx
+
+[Install]
+WantedBy=multi-user.target
