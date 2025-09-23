@@ -178,7 +178,7 @@ class AffiliateJunctionETL:
         logger.info("Starting impressions rollup process...")
         
         # Get current minute timestamp for processing
-        current_minute = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        previous_minute = datetime.now(timezone.utc).replace(second=0, microsecond=0)
         
         try:
             # 1. Query impressions_by_minute table from Cassandra for the current minute
@@ -186,14 +186,14 @@ class AffiliateJunctionETL:
             # Assuming bucket values 0-9 for fan-out (can be adjusted based on actual implementation)
             
             all_impressions = []
-            for bucket in range(10):  # Adjust bucket range as needed
+            for bucket in range(int(os.getenv("AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT"))):
                 query = """
                 SELECT bucket_date, publishers_id, advertisers_id, cookie_id, ts
                 FROM impressions_by_minute
                 WHERE bucket_date = ? AND bucket = ?
                 """
                 
-                rows = self.cassandra_session.execute(query, [current_minute, bucket])
+                rows = self.cassandra_session.execute(query, [previous_minute, bucket])
                 for row in rows:
                     all_impressions.append({
                         'bucket_date': row.bucket_date,

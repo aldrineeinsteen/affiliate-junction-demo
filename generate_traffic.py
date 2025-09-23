@@ -196,21 +196,18 @@ class SyntheticTrafficGenerator:
             self.impression_insert_stmt = self.cassandra_session.prepare(f"""
                 INSERT INTO {os.getenv('HCD_KEYSPACE')}.impression_tracking (publishers_id, cookie_id, timestamp, advertisers_id, impressions) 
                 VALUES (?, ?, ?, ?, ?)
-                USING TTL {int(os.getenv('AFFILIATE_JUNCTION_HISTORY_MINS')) * 60}
             """)
             
             # Prepare statement for impressions_by_minute table
             self.impressions_by_minute_insert_stmt = self.cassandra_session.prepare(f"""
                 INSERT INTO {os.getenv('HCD_KEYSPACE')}.impressions_by_minute (bucket_date, bucket, ts, publishers_id, advertisers_id, cookie_id, impression_id) 
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-                USING TTL {int(os.getenv('AFFILIATE_JUNCTION_HISTORY_MINS')) * 60}
             """)
             
             # Prepare statement for conversion tracking with configurable TTL
             self.conversion_insert_stmt = self.cassandra_session.prepare(f"""
                 INSERT INTO {os.getenv('HCD_KEYSPACE')}.conversion_tracking (advertisers_id, timestamp, cookie_id) 
                 VALUES (?, ?, ?)
-                USING TTL {int(os.getenv('AFFILIATE_JUNCTION_HISTORY_MINS')) * 60}
             """)
             
             logger.info(f"Prepared statements for data insertion with {os.getenv('AFFILIATE_JUNCTION_HISTORY_MINS')}-minute TTL")
@@ -256,8 +253,8 @@ class SyntheticTrafficGenerator:
                 }
             
             # Generate individual impression for impressions_by_minute table
-            # Create a hash bucket (0-15) based on publisher_id for write distribution
-            bucket = hash(publisher_id) % 16
+            # Create a hash bucket based on publisher_id for write distribution
+            bucket = hash(publisher_id) % int(os.getenv("AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT"))
             
             # Generate timeuuid for precise ordering
             ts_uuid = uuid_from_time(now)
