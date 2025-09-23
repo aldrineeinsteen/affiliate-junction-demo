@@ -6,7 +6,7 @@ import time
 import logging
 import requests
 import prestodb
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from cassandra.cluster import Cluster, ExecutionProfile
 from cassandra.auth import PlainTextAuthProvider
@@ -178,22 +178,19 @@ class AffiliateJunctionETL:
         logger.info("Starting impressions rollup process...")
         
         # Get current minute timestamp for processing
-        previous_minute = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        # Calculate the previous minute (rounded down to the last full minute)
+        previous_minute = (datetime.now(timezone.utc).replace(second=0, microsecond=0) - timedelta(minutes=1))
         
         try:
-            # 1. Query impressions_by_minute table from Cassandra for the current minute
-            # We need to query all bucket values (0 to N-1) for the current minute
-            # Assuming bucket values 0-9 for fan-out (can be adjusted based on actual implementation)
-            
             all_impressions = []
             for bucket in range(int(os.getenv("AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT"))):
-                query = """
+                query = f"""
                 SELECT bucket_date, publishers_id, advertisers_id, cookie_id, ts
                 FROM impressions_by_minute
-                WHERE bucket_date = ? AND bucket = ?
+                WHERE bucket_date = '{previous_minute}' AND bucket = {bucket}
                 """
                 
-                rows = self.cassandra_session.execute(query, [previous_minute, bucket])
+                rows = self.cassandra_session.execute(query)
                 for row in rows:
                     all_impressions.append({
                         'bucket_date': row.bucket_date,
@@ -204,35 +201,20 @@ class AffiliateJunctionETL:
                     })
             
             if not all_impressions:
-                logger.info(f"No impressions found for minute: {current_minute}")
+                logger.info(f"No impressions found for minute: {previous_minute}")
                 return
             
-            logger.info(f"Found {len(all_impressions)} raw impression records for minute: {current_minute}")
+            logger.info(f"Found {len(all_impressions)} raw impression records for minute: {previous_minute}")
             
-            # 2. Convert to Spark DataFrame for aggregation
             impressions_df = self.spark.createDataFrame(all_impressions)
             
-            # 3. Aggregate by publishers_id, advertisers_id
-            # Calculate total impressions (count of records) and unique cookies
-            aggregated_df = impressions_df.groupBy("publishers_id", "advertisers_id") \
-                .agg(
-                    count("*").alias("impressions"),
-                    countDistinct("cookie_id").alias("unique_cookies"),
-                    first("bucket_date").alias("timestamp")
-                )
+            # Aggregate by publishers_id, advertisers_id, cookie_id to count impressions
+            # Multiple records for the same combo within the time period should be counted
+            final_df = impressions_df.groupBy("publishers_id", "advertisers_id", "cookie_id") \
+                .agg(count("*").alias("impressions")) \
+                .withColumn("timestamp", lit(previous_minute))
             
-            # Add timestamp for the aggregated data
-            aggregated_df = aggregated_df.withColumn("timestamp", col("timestamp"))
-            
-            # Select only the columns needed for the destination table
-            final_df = aggregated_df.select(
-                "publishers_id",
-                "advertisers_id", 
-                "timestamp",
-                "impressions"
-            ).withColumn("cookie_id", lit("AGGREGATED"))  # Use placeholder for aggregated data
-            
-            logger.info(f"Aggregated to {final_df.count()} publisher-advertiser combinations")
+            logger.info(f"Aggregated to {final_df.count()} unique publisher-advertiser-cookie combinations")
             
             # 4. Write aggregated data to Presto impression_tracking table
             if final_df.count() > 0:
@@ -263,14 +245,14 @@ class AffiliateJunctionETL:
             logger.error(f"Error during impressions rollup: {e}")
             raise
         
-        logger.info(f"Impressions rollup completed for minute: {current_minute}")
+        logger.info(f"Impressions rollup completed for minute: {previous_minute}")
     
     def identify_conversions(self):
         """Identify conversions by matching with impression data - STUB FUNCTION"""
         logger.info("Starting conversions identification process...")
         
         # Get current minute timestamp for processing
-        current_minute = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        previous_minute = datetime.now(timezone.utc).replace(second=0, microsecond=0)
         
         # TODO: Implement conversion identification logic
         # This should:
@@ -279,7 +261,7 @@ class AffiliateJunctionETL:
         # 3. Calculate time_to_conversion and identify the publisher that should get credit
         # 4. Write conversion attribution data to Presto conversions_identified table
         
-        logger.info(f"Conversions identification completed for minute: {current_minute}")
+        logger.info(f"Conversions identification completed for minute: {previous_minute}")
     
     def cleanup(self):
         """Clean up connections"""
@@ -342,11 +324,13 @@ class AffiliateJunctionETL:
                     break
                 except Exception as e:
                     logger.error(f"Error in main loop: {e}")
-                    time.sleep(5)  # Wait before retrying
+                    raise
+                    # time.sleep(5)  # Wait before retrying
                     
         except Exception as e:
             logger.error(f"Fatal error: {e}")
-            sys.exit(1)
+            raise
+            # sys.exit(1)
         finally:
             self.cleanup()
 
