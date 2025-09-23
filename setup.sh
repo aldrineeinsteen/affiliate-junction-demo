@@ -23,7 +23,7 @@ git config --global user.name "Your Name"
 echo "Configuring systemctl"
 sudo cp *.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable generate_traffic hcd_to_presto
-sudo systemctl start generate_traffic hcd_to_presto
+sudo systemctl enable generate_traffic hcd_to_presto presto_cleanup
+sudo systemctl start generate_traffic hcd_to_presto presto_cleanup
 echo "systemctl done"
 
