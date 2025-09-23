@@ -185,7 +185,7 @@ class AffiliateJunctionETL:
             all_impressions = []
             for bucket in range(int(os.getenv("AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT"))):
                 query = f"""
-                SELECT bucket_date, publishers_id, advertisers_id, cookie_id, ts
+                SELECT bucket_date, publishers_id, advertisers_id, cookie_id
                 FROM impressions_by_minute
                 WHERE bucket_date = '{previous_minute}' AND bucket = {bucket}
                 """
@@ -197,7 +197,6 @@ class AffiliateJunctionETL:
                         'publishers_id': row.publishers_id,
                         'advertisers_id': row.advertisers_id,
                         'cookie_id': row.cookie_id,
-                        'ts': row.ts
                     })
             
             if not all_impressions:
@@ -210,13 +209,14 @@ class AffiliateJunctionETL:
             
             # Aggregate by publishers_id, advertisers_id, cookie_id to count impressions
             # Multiple records for the same combo within the time period should be counted
-            final_df = impressions_df.groupBy("publishers_id", "advertisers_id", "cookie_id") \
+            # Include bucket_date in groupBy since all records should have the same bucket_date
+            final_df = impressions_df.groupBy("publishers_id", "advertisers_id", "cookie_id", "bucket_date") \
                 .agg(count("*").alias("impressions")) \
-                .withColumn("timestamp", lit(previous_minute))
+                .withColumnRenamed("bucket_date", "timestamp")
             
             logger.info(f"Aggregated to {final_df.count()} unique publisher-advertiser-cookie combinations")
             
-            # 4. Write aggregated data to Presto impression_tracking table
+            # Write aggregated data to Presto impression_tracking table
             if final_df.count() > 0:
                 # Convert Spark DataFrame to list of tuples for Presto insertion
                 rows_to_insert = final_df.collect()
@@ -229,14 +229,29 @@ class AffiliateJunctionETL:
                 VALUES (?, ?, ?, ?, ?)
                 """
                 
-                for row in rows_to_insert:
-                    cursor.execute(insert_query, (
-                        row.publishers_id,
-                        row.cookie_id,
-                        row.advertisers_id,
-                        row.timestamp,
-                        row.impressions
-                    ))
+                # Process in batches of 10,000 records for better performance
+                batch_size = 10000
+                for i in range(0, len(rows_to_insert), batch_size):
+                    batch = rows_to_insert[i:i + batch_size]
+                    batch_num = (i // batch_size) + 1
+                    total_batches = (len(rows_to_insert) + batch_size - 1) // batch_size
+
+                    logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} records)")
+                    
+                    # Create a single INSERT statement with multiple VALUES clauses
+                    values_list = []
+                    for row in batch:
+                        values_list.append(f"('{row.publishers_id}', '{row.cookie_id}', '{row.advertisers_id}', TIMESTAMP '{row.timestamp}', {row.impressions})")
+                    
+                    values_clause = ", ".join(values_list)
+                    batch_insert_query = f"""
+                    INSERT INTO iceberg_data.affiliate_junction.impression_tracking 
+                    (publishers_id, cookie_id, advertisers_id, timestamp, impressions)
+                    VALUES {values_clause}
+                    """
+                    
+                    # Execute the batch as a single statement
+                    cursor.execute(batch_insert_query)
                 
                 cursor.close()
                 logger.info(f"Successfully inserted {len(rows_to_insert)} aggregated impression records to Presto")
@@ -303,19 +318,12 @@ class AffiliateJunctionETL:
                     
                     # Task 1: Rollup impressions
                     self.rollup_impressions()
-                    sys.exit(0)
                     
                     # Task 2: Identify conversions
-                    self.identify_conversions()
+                    # self.identify_conversions()
                     
-                    # Calculate how long the processing took
                     execution_time = time.time() - iteration_start
-                    
-                    # Calculate sleep time to align with the next minute
-                    now = time.time()
-                    seconds_into_minute = now % 60
-                    sleep_time = max(0, 60 - seconds_into_minute)
-                    
+                    sleep_time = 60 - execution_time
                     logger.info(f"Processing completed in {execution_time:.2f} seconds. Sleeping for {sleep_time:.2f} seconds until next minute...")
                     time.sleep(sleep_time)
                     
