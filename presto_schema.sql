@@ -15,9 +15,18 @@ CREATE TABLE IF NOT EXISTS iceberg_data.affiliate_junction.impression_tracking (
     partitioning = ARRAY['day(timestamp)', 'bucket(publishers_id, 10)']
 );
 
+-- Create conversion tracking table
+CREATE TABLE IF NOT EXISTS iceberg_data.affiliate_junction.conversion_tracking (
+    advertisers_id varchar,
+    timestamp timestamp,
+    cookie_id varchar
+) WITH (
+    format = 'PARQUET',
+    partitioning = ARRAY['day(timestamp)', 'bucket(advertisers_id, 10)']
+);
+
 -- Create conversions identification table
 CREATE TABLE IF NOT EXISTS iceberg_data.affiliate_junction.conversions_identified (
-    conversion_id varchar,
     advertisers_id varchar,
     publishers_id varchar,
     cookie_id varchar,
@@ -27,20 +36,7 @@ CREATE TABLE IF NOT EXISTS iceberg_data.affiliate_junction.conversions_identifie
     created_at timestamp WITH TIME ZONE
 ) WITH (
     format = 'PARQUET',
-    partitioning = ARRAY['conversion_timestamp']
+    partitioning = ARRAY['day(conversion_timestamp)', 'bucket(publishers_id, 10)']
 );
 
--- Create analytics summary table for dashboards
-CREATE TABLE IF NOT EXISTS iceberg_data.affiliate_junction.analytics_summary (
-    summary_date date,
-    publishers_id varchar,
-    advertisers_id varchar,
-    total_impressions bigint,
-    total_conversions bigint,
-    conversion_rate double,
-    unique_visitors bigint,
-    created_at timestamp WITH TIME ZONE
-) WITH (
-    format = 'PARQUET',
-    partitioning = ARRAY['summary_date']
-);
+

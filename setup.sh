@@ -21,9 +21,9 @@ git config --global user.name "Your Name"
 
 # Enable backend services
 echo "Configuring systemctl"
-sudo cp generate_traffic.service /etc/systemd/system/
+sudo cp *.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable generate_traffic
-sudo systemctl start generate_traffic
+sudo systemctl enable generate_traffic hcd_to_presto
+sudo systemctl start generate_traffic hcd_to_presto
 echo "systemctl done"
 

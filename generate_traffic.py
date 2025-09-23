@@ -210,6 +210,12 @@ class SyntheticTrafficGenerator:
                 VALUES (?, ?, ?)
             """)
             
+            # Prepare statement for conversions_by_minute table
+            self.conversions_by_minute_insert_stmt = self.cassandra_session.prepare(f"""
+                INSERT INTO {os.getenv('HCD_KEYSPACE')}.conversions_by_minute (bucket_date, bucket, ts, publishers_id, advertisers_id, cookie_id, conversion_id) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """)
+            
             logger.info(f"Prepared statements for data insertion with {os.getenv('AFFILIATE_JUNCTION_HISTORY_MINS')}-minute TTL")
             
         except Exception as e:
@@ -277,8 +283,11 @@ class SyntheticTrafficGenerator:
         
         # Generate conversion tracking data
         conversion_data = []
+        conversions_by_minute_data = []
+        
         for _ in range(int(os.getenv('AFFILIATE_JUNCTION_SALES_MIN'))):
             advertiser_id = random.choice(self.advertisers)
+            publisher_id = random.choice(self.publishers)  # Add publisher for conversions_by_minute
             cookie_id = self.get_random_cookie_id()
             
             conversion_data.append({
@@ -286,13 +295,33 @@ class SyntheticTrafficGenerator:
                 'timestamp': clipped_timestamp,
                 'cookie_id': cookie_id
             })
+            
+            # Generate individual conversion for conversions_by_minute table
+            # Create a hash bucket based on advertiser_id for write distribution
+            bucket = hash(advertiser_id) % int(os.getenv("AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT"))
+            
+            # Generate timeuuid for precise ordering
+            ts_uuid = uuid_from_time(now)
+            
+            # Generate unique conversion ID
+            conversion_id = uuid.uuid4()
+            
+            conversions_by_minute_data.append({
+                'bucket_date': bucket_date,
+                'bucket': bucket,
+                'ts': ts_uuid,
+                'publishers_id': publisher_id,
+                'advertisers_id': advertiser_id,
+                'cookie_id': cookie_id,
+                'conversion_id': conversion_id
+            })
         
-        logger.info(f"Generated {len(impression_data)} aggregated impression records ({sum(record['impressions'] for record in impression_data)} total impressions), {len(impressions_by_minute_data)} minute-based impression records, and {len(conversion_data)} conversion records")
+        logger.info(f"Generated {len(impression_data)} aggregated impression records ({sum(record['impressions'] for record in impression_data)} total impressions), {len(impressions_by_minute_data)} minute-based impression records, {len(conversion_data)} conversion records, and {len(conversions_by_minute_data)} minute-based conversion records")
         
         # Insert data to Cassandra
-        self.insert_data_to_cassandra(impression_data, impressions_by_minute_data, conversion_data)
+        self.insert_data_to_cassandra(impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data)
     
-    def insert_data_to_cassandra(self, impression_data, impressions_by_minute_data, conversion_data):
+    def insert_data_to_cassandra(self, impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data):
         """Insert data into Cassandra using batch operations with dual write pattern"""
         try:
             logger.info("Inserting data to Cassandra using batch operations...")
@@ -351,7 +380,26 @@ class SyntheticTrafficGenerator:
                 self.cassandra_session.execute(conversion_batch)
                 logger.info(f"Batch inserted {len(conversion_data)} conversion records")
             
-            logger.info(f"Successfully batch inserted {len(impression_data)} impression records, {len(impressions_by_minute_data)} impressions_by_minute records, and {len(conversion_data)} conversion records")
+            # Create batch statement for conversions_by_minute data (dual write pattern)
+            if conversions_by_minute_data:
+                conversions_minute_batch = BatchStatement(batch_type=BatchType.UNLOGGED)
+                for record in conversions_by_minute_data:
+                    conversions_minute_batch.add(
+                        self.conversions_by_minute_insert_stmt,
+                        [
+                            record['bucket_date'],
+                            record['bucket'],
+                            record['ts'],
+                            record['publishers_id'],
+                            record['advertisers_id'],
+                            record['cookie_id'],
+                            record['conversion_id']
+                        ]
+                    )
+                self.cassandra_session.execute(conversions_minute_batch)
+                logger.info(f"Batch inserted {len(conversions_by_minute_data)} conversions_by_minute records")
+            
+            logger.info(f"Successfully batch inserted {len(impression_data)} impression records, {len(impressions_by_minute_data)} impressions_by_minute records, {len(conversion_data)} conversion records, and {len(conversions_by_minute_data)} conversions_by_minute records")
             
         except Exception as e:
             logger.error(f"Failed to insert data to Cassandra: {e}")
