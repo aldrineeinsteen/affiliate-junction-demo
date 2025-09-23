@@ -77,15 +77,43 @@ Once Presto and HCD are available, execute `setup.sh` to install other pre-reqs 
 
 Backend ops are python scripts managed by `systemd` with unit files.
 
+#### Traffic Generator Service
+Generates synthetic affiliate marketing data and writes it to the HCD (Cassandra) database.
+
 ```
-# Service ops for traffic generater
+# Service operations
 sudo systemctl start generate_traffic
 sudo systemctl status generate_traffic
 sudo systemctl restart generate_traffic
 
-# View log files for generate_traffic
+# View logs
 journalctl -u generate_traffic -f
+```
 
+#### HCD to Presto Transfer Service
+Transfers data from the HCD (Cassandra) database to Presto/Iceberg for analytical processing.
+
+```
+# Service operations
+sudo systemctl start hcd_to_presto
+sudo systemctl status hcd_to_presto
+sudo systemctl restart hcd_to_presto
+
+# View logs
+journalctl -u hcd_to_presto -f
+```
+
+#### Presto Cleanup Service
+Performs maintenance and cleanup operations on the Presto data lake storage.
+
+```
+# Service operations
+sudo systemctl start presto_cleanup
+sudo systemctl status presto_cleanup
+sudo systemctl restart presto_cleanup
+
+# View logs
+journalctl -u presto_cleanup -f
 ```
 
 
