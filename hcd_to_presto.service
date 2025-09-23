@@ -5,6 +5,8 @@ After=network.target
 
 [Service]
 Type=simple
+Environment=PATH=/home/watsonx/affiliate-junction-demo/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=VIRTUAL_ENV=/home/watsonx/affiliate-junction-demo/.venv
 ExecStart=/home/watsonx/affiliate-junction-demo/.venv/bin/python /home/watsonx/affiliate-junction-demo/hcd_to_presto.py
 Restart=on-failure
 User=watsonx

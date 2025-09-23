@@ -39,4 +39,17 @@ CREATE TABLE IF NOT EXISTS impressions_by_minute (
     impression_id UUID,      -- optional unique id for idempotency
     PRIMARY KEY ((bucket_date, bucket), ts, publishers_id, advertisers_id, cookie_id, impression_id)
 ) WITH CLUSTERING ORDER BY (ts ASC)
-AND default_time_to_live = 21600;
+AND default_time_to_live = 600;
+
+-- Create conversions by minute table for time-based conversion tracking
+CREATE TABLE IF NOT EXISTS conversions_by_minute (
+    bucket_date TIMESTAMP,   -- floor(timestamp to UTC minute)
+    bucket SMALLINT,         -- 0..(N-1), hash bucket to fan out writes
+    ts TIMEUUID,             -- event time (timeuuid for ordering)
+    publishers_id TEXT,
+    advertisers_id TEXT,
+    cookie_id TEXT,
+    conversion_id UUID,      -- optional unique id for idempotency
+    PRIMARY KEY ((bucket_date, bucket), ts, publishers_id, advertisers_id, cookie_id, conversion_id)
+) WITH CLUSTERING ORDER BY (ts ASC)
+AND default_time_to_live = 600;

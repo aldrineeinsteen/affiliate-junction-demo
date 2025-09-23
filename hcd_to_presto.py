@@ -263,18 +263,73 @@ class AffiliateJunctionETL:
         logger.info(f"Impressions rollup completed for minute: {previous_minute}")
     
     def identify_conversions(self):
-        """Identify conversions by matching with impression data - STUB FUNCTION"""
+        """Identify conversions by reading from Cassandra and writing to Presto"""
         logger.info("Starting conversions identification process...")
         
         # Get current minute timestamp for processing
-        previous_minute = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        previous_minute = (datetime.now(timezone.utc).replace(second=0, microsecond=0) - timedelta(minutes=1))
         
-        # TODO: Implement conversion identification logic
-        # This should:
-        # 1. Query conversion_tracking table from Cassandra for the current minute
-        # 2. For each conversion, look back in impression_tracking to find matching impressions
-        # 3. Calculate time_to_conversion and identify the publisher that should get credit
-        # 4. Write conversion attribution data to Presto conversions_identified table
+        try:
+            all_conversions = []
+            for bucket in range(int(os.getenv("AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT"))):
+                query = f"""
+                SELECT bucket_date, ts, publishers_id, advertisers_id, cookie_id, conversion_id
+                FROM conversions_by_minute
+                WHERE bucket_date = '{previous_minute}' AND bucket = {bucket}
+                """
+                
+                rows = self.cassandra_session.execute(query)
+                for row in rows:
+                    all_conversions.append({
+                        'bucket_date': row.bucket_date,
+                        'ts': row.ts,
+                        'publishers_id': row.publishers_id,
+                        'advertisers_id': row.advertisers_id,
+                        'cookie_id': row.cookie_id,
+                        'conversion_id': row.conversion_id
+                    })
+            
+            if not all_conversions:
+                logger.info(f"No conversions found for minute: {previous_minute}")
+                return
+            
+            logger.info(f"Found {len(all_conversions)} raw conversion records for minute: {previous_minute}")
+            
+            # Write conversion data directly to Presto conversion_tracking table
+            # Each conversion is a distinct event, so no aggregation needed
+            cursor = self.presto_connection.cursor()
+            
+            # Process in batches of 10,000 records for better performance
+            batch_size = 10000
+            for i in range(0, len(all_conversions), batch_size):
+                batch = all_conversions[i:i + batch_size]
+                batch_num = (i // batch_size) + 1
+                total_batches = (len(all_conversions) + batch_size - 1) // batch_size
+
+                logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} records)")
+                
+                # Create a single INSERT statement with multiple VALUES clauses
+                values_list = []
+                for row in batch:
+                    # Use bucket_date as timestamp since it represents the minute bucket
+                    values_list.append(f"('{row['advertisers_id']}', TIMESTAMP '{row['bucket_date']}', '{row['cookie_id']}')")
+                
+                values_clause = ", ".join(values_list)
+                batch_insert_query = f"""
+                INSERT INTO iceberg_data.affiliate_junction.conversion_tracking 
+                (advertisers_id, timestamp, cookie_id)
+                VALUES {values_clause}
+                """
+                
+                # Execute the batch as a single statement
+                cursor.execute(batch_insert_query)
+            
+            cursor.close()
+            logger.info(f"Successfully inserted {len(all_conversions)} conversion records to Presto")
+            
+        except Exception as e:
+            logger.error(f"Error during conversions identification: {e}")
+            raise
         
         logger.info(f"Conversions identification completed for minute: {previous_minute}")
     
@@ -320,11 +375,16 @@ class AffiliateJunctionETL:
                     self.rollup_impressions()
                     
                     # Task 2: Identify conversions
-                    # self.identify_conversions()
+                    self.identify_conversions()
                     
                     execution_time = time.time() - iteration_start
-                    sleep_time = 60 - execution_time
-                    logger.info(f"Processing completed in {execution_time:.2f} seconds. Sleeping for {sleep_time:.2f} seconds until next minute...")
+                    
+                    # Calculate time until 5 seconds into the next minute
+                    current_time = datetime.now(timezone.utc)
+                    next_minute_plus_5 = (current_time.replace(second=0, microsecond=0) + timedelta(minutes=1, seconds=5))
+                    sleep_time = (next_minute_plus_5 - current_time).total_seconds()
+                    
+                    logger.info(f"Processing completed in {execution_time:.2f} seconds. Sleeping for {sleep_time:.2f} seconds until 5 seconds into next minute ({next_minute_plus_5.strftime('%H:%M:%S')})...")
                     time.sleep(sleep_time)
                     
                 except KeyboardInterrupt:
@@ -337,7 +397,8 @@ class AffiliateJunctionETL:
                     
         except Exception as e:
             logger.error(f"Fatal error: {e}")
-            raise
+            time.sleep(5)
+            #raise
             # sys.exit(1)
         finally:
             self.cleanup()
