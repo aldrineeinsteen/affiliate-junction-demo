@@ -1,7 +1,7 @@
 
 
 # Bootstrap infrastructure
-sudo dnf install java-17-openjdk java-17-openjdk-devel
+sudo dnf -y install java-17-openjdk java-17-openjdk-devel
 
 
 
