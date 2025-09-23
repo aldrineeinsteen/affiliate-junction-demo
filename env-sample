@@ -15,7 +15,7 @@ HCD_PASSWD=cassandra
 
 
 # From /certs/passwords
-PRESTO_HOST=127.0.0.1
+PRESTO_HOST=ibm-lh-presto-svc
 PRESTO_PORT=8443
 PRESTO_USER=ibmlhadmin
 PRESTO_PASSWD=password
