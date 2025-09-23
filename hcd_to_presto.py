@@ -4,6 +4,8 @@ import os
 import sys
 import time
 import logging
+import prestodb
+import requests
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from cassandra.cluster import Cluster, ExecutionProfile
@@ -11,7 +13,8 @@ from cassandra.auth import PlainTextAuthProvider
 from cassandra.policies import DCAwareRoundRobinPolicy
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import *
-import prestodb
+from prestodb.client import PrestoRequest, ClientSession
+
 
 # Configure logging
 logging.basicConfig(
@@ -78,6 +81,9 @@ class AffiliateJunctionETL:
     def connect_to_presto(self):
         """Establish connection to Presto"""
         try:
+            session = requests.Session()
+            session.verify = "/certs/presto.crt"
+
             self.presto_connection = prestodb.dbapi.connect(
                 host=os.getenv('PRESTO_HOST'),
                 port=int(os.getenv('PRESTO_PORT')),
@@ -85,11 +91,11 @@ class AffiliateJunctionETL:
                 catalog=os.getenv('PRESTO_CATALOG'),
                 schema=os.getenv('PRESTO_SCHEMA'),
                 http_scheme='https',
+                http_session=session,
                 auth=prestodb.auth.BasicAuthentication(
                     os.getenv('PRESTO_USER'), 
                     os.getenv('PRESTO_PASSWD')
-                ),
-                verify=False
+                )
             )
             
             logger.info(f"Connected to Presto at {os.getenv('PRESTO_HOST')}:{os.getenv('PRESTO_PORT')}")

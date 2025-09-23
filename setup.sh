@@ -1,5 +1,10 @@
 
 
+# Bootstrap infrastructure
+sudo dnf install java-17-openjdk java-17-openjdk-devel
+
+
+
 # Bootstrap python environment
 echo "Setup Python"
 python3.11 -m venv .venv
