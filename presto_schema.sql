@@ -30,6 +30,19 @@ CREATE TABLE IF NOT EXISTS iceberg_data.affiliate_junction.conversions_identifie
     partitioning = ARRAY['conversion_timestamp']
 );
 
+-- Create impressions rollup table for minute-level aggregation
+CREATE TABLE IF NOT EXISTS iceberg_data.affiliate_junction.impressions_rollup (
+    bucket_date timestamp,
+    publishers_id varchar,
+    advertisers_id varchar,
+    total_impressions bigint,
+    unique_cookies bigint,
+    created_at timestamp WITH TIME ZONE
+) WITH (
+    format = 'PARQUET',
+    partitioning = ARRAY['bucket_date']
+);
+
 -- Create analytics summary table for dashboards
 CREATE TABLE IF NOT EXISTS iceberg_data.affiliate_junction.analytics_summary (
     summary_date date,

@@ -52,6 +52,23 @@ The real power of watsonx.data is executing federated queries across diverse dat
 ```
 
 
+## Install
+
+### Compatibility 
+
+This repo is designed to run seamlessly on a watsonx.data Developer Edition single host.  It assumes Hyperconverged Database (HCD) has been installed.
+
+This has been built and tested on Red Hat Enterprise Linux release 9.6.
+
+The suite will run as expected when installed on top of this ITZ collection:
+https://techzone.ibm.com/collection/ibm-watsonxdata-developer-base-image--hcd-cassandra
+
+
+### Installation
+
+Once Presto and HCD are available, execute `setup.sh` to install other pre-reqs and configure services.
+
+
 
 ## Troubleshooting
 

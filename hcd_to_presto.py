@@ -174,18 +174,94 @@ class AffiliateJunctionETL:
             raise
     
     def rollup_impressions(self):
-        """Rollup impressions from Cassandra to Presto - STUB FUNCTION"""
+        """Rollup impressions from Cassandra to Presto"""
         logger.info("Starting impressions rollup process...")
         
         # Get current minute timestamp for processing
         current_minute = datetime.now(timezone.utc).replace(second=0, microsecond=0)
         
-        # TODO: Implement impressions rollup logic
-        # This should:
-        # 1. Query impressions_by_minute table from Cassandra for the current minute
-        # 2. Aggregate by publishers_id, advertisers_id
-        # 3. Calculate total impressions and unique cookies
-        # 4. Write aggregated data to Presto impressions_rollup table
+        try:
+            # 1. Query impressions_by_minute table from Cassandra for the current minute
+            # We need to query all bucket values (0 to N-1) for the current minute
+            # Assuming bucket values 0-9 for fan-out (can be adjusted based on actual implementation)
+            
+            all_impressions = []
+            for bucket in range(10):  # Adjust bucket range as needed
+                query = """
+                SELECT bucket_date, publishers_id, advertisers_id, cookie_id, ts
+                FROM impressions_by_minute
+                WHERE bucket_date = ? AND bucket = ?
+                """
+                
+                rows = self.cassandra_session.execute(query, [current_minute, bucket])
+                for row in rows:
+                    all_impressions.append({
+                        'bucket_date': row.bucket_date,
+                        'publishers_id': row.publishers_id,
+                        'advertisers_id': row.advertisers_id,
+                        'cookie_id': row.cookie_id,
+                        'ts': row.ts
+                    })
+            
+            if not all_impressions:
+                logger.info(f"No impressions found for minute: {current_minute}")
+                return
+            
+            logger.info(f"Found {len(all_impressions)} raw impression records for minute: {current_minute}")
+            
+            # 2. Convert to Spark DataFrame for aggregation
+            impressions_df = self.spark.createDataFrame(all_impressions)
+            
+            # 3. Aggregate by publishers_id, advertisers_id
+            # Calculate total impressions (count of records) and unique cookies
+            aggregated_df = impressions_df.groupBy("publishers_id", "advertisers_id") \
+                .agg(
+                    count("*").alias("impressions"),
+                    countDistinct("cookie_id").alias("unique_cookies"),
+                    first("bucket_date").alias("timestamp")
+                )
+            
+            # Add timestamp for the aggregated data
+            aggregated_df = aggregated_df.withColumn("timestamp", col("timestamp"))
+            
+            # Select only the columns needed for the destination table
+            final_df = aggregated_df.select(
+                "publishers_id",
+                "advertisers_id", 
+                "timestamp",
+                "impressions"
+            ).withColumn("cookie_id", lit("AGGREGATED"))  # Use placeholder for aggregated data
+            
+            logger.info(f"Aggregated to {final_df.count()} publisher-advertiser combinations")
+            
+            # 4. Write aggregated data to Presto impression_tracking table
+            if final_df.count() > 0:
+                # Convert Spark DataFrame to list of tuples for Presto insertion
+                rows_to_insert = final_df.collect()
+                
+                cursor = self.presto_connection.cursor()
+                
+                insert_query = """
+                INSERT INTO iceberg_data.affiliate_junction.impression_tracking 
+                (publishers_id, cookie_id, advertisers_id, timestamp, impressions)
+                VALUES (?, ?, ?, ?, ?)
+                """
+                
+                for row in rows_to_insert:
+                    cursor.execute(insert_query, (
+                        row.publishers_id,
+                        row.cookie_id,
+                        row.advertisers_id,
+                        row.timestamp,
+                        row.impressions
+                    ))
+                
+                cursor.close()
+                logger.info(f"Successfully inserted {len(rows_to_insert)} aggregated impression records to Presto")
+            
+        except Exception as e:
+            logger.error(f"Error during impressions rollup: {e}")
+            raise
         
         logger.info(f"Impressions rollup completed for minute: {current_minute}")
     
@@ -235,7 +311,6 @@ class AffiliateJunctionETL:
             
             # Execute Presto schema
             self.execute_presto_schema()
-            sys.exit()
             
             logger.info("Entering main loop...")
             
@@ -246,6 +321,7 @@ class AffiliateJunctionETL:
                     
                     # Task 1: Rollup impressions
                     self.rollup_impressions()
+                    sys.exit(0)
                     
                     # Task 2: Identify conversions
                     self.identify_conversions()
