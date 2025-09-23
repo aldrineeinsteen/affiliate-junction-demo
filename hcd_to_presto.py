@@ -101,7 +101,9 @@ class AffiliateJunctionETL:
                 ),
             )
             
-            self.presto_connection = prestodb.dbapi.Connection(request)
+            # self.presto_connection = prestodb.dbapi.Connection(request)
+            # self.presto_connection = prestodb.dbapi.connect(request=request)
+            self.presto_connection = request
             
             # self.presto_connection = prestodb.dbapi.connect(
             #     host=os.getenv('PRESTO_HOST'),
