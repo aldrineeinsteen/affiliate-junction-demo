@@ -1,3 +1,4 @@
+#!/bin/bash
 
 
 # Bootstrap infrastructure
@@ -18,6 +19,7 @@ cp env-sample .env
 
 git config --global user.email "you@example.com"
 git config --global user.name "Your Name"
+
 
 # Enable backend services
 echo "Configuring systemctl"
