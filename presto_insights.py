@@ -7,6 +7,9 @@ import logging
 import prestodb
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
+from cassandra.cluster import Cluster, ExecutionProfile
+from cassandra.auth import PlainTextAuthProvider
+from cassandra.policies import DCAwareRoundRobinPolicy
 
 
 # Configure logging
@@ -20,6 +23,7 @@ logger = logging.getLogger(__name__)
 class AffiliateJunctionInsights:
     def __init__(self):
         self.presto_connection = None
+        self.cassandra_session = None
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
         self.load_environment()
         
@@ -55,6 +59,155 @@ class AffiliateJunctionInsights:
         except Exception as e:
             logger.error(f"Failed to connect to Presto: {e}")
             sys.exit(1)
+    
+    def connect_to_cassandra(self):
+        """Establish connection to Cassandra cluster - reusing from hcd_to_presto.py"""
+        try:
+            auth_provider = None
+            if os.getenv('HCD_USER') and os.getenv('HCD_PASSWD'):
+                auth_provider = PlainTextAuthProvider(
+                    username=os.getenv('HCD_USER'),
+                    password=os.getenv('HCD_PASSWD')
+                )
+                      
+            # Create execution profile with timeout settings
+            profile = ExecutionProfile(
+                load_balancing_policy=DCAwareRoundRobinPolicy(local_dc=os.getenv('HCD_DATACENTER')),
+                request_timeout=10
+            )
+            
+            cluster = Cluster(
+                [os.getenv('HCD_HOST', 'localhost')],
+                port=int(os.getenv('HCD_PORT', '9042')),
+                auth_provider=auth_provider,
+                protocol_version=5,
+                execution_profiles={'default': profile}
+            )
+            
+            self.cassandra_session = cluster.connect()
+            
+            # Set keyspace if specified
+            if os.getenv('HCD_KEYSPACE'):
+                self.cassandra_session.set_keyspace(os.getenv('HCD_KEYSPACE'))
+            
+            logger.info(f"Connected to Cassandra cluster at {os.getenv('HCD_HOST', 'localhost')}:{os.getenv('HCD_PORT', '9042')}")
+            
+        except Exception as e:
+            logger.error(f"Failed to connect to Cassandra: {e}")
+            sys.exit(1)
+    
+    def process_publisher_impressions(self, target_minute):
+        """
+        Process impression data from the previous minute and upsert to HCD publishers table.
+        
+        Args:
+            target_minute (datetime): The minute timestamp to process impressions for
+        """
+        logger.info(f"Starting publisher impressions processing for minute: {target_minute}")
+        
+        try:
+            cursor = self.presto_connection.cursor()
+            
+            start_time = target_minute
+            end_time = target_minute + timedelta(minutes=1)
+            
+            # Format datetime values directly into the query (Presto doesn't support parameterized queries)
+            impressions_query = f'''
+            SELECT 
+                publishers_id,
+                SUM(impressions) as total_impressions
+            FROM iceberg_data.affiliate_junction.impression_tracking
+            WHERE timestamp >= TIMESTAMP '{start_time.strftime('%Y-%m-%d %H:%M:%S')}' 
+                AND timestamp < TIMESTAMP '{end_time.strftime('%Y-%m-%d %H:%M:%S')}'
+            GROUP BY publishers_id
+            '''
+            
+            cursor.execute(impressions_query)
+            publisher_impressions = cursor.fetchall()
+            cursor.close()
+            
+            if not publisher_impressions:
+                logger.info(f"No impressions found for minute: {target_minute}")
+                return
+            
+            logger.info(f"Found impressions for {len(publisher_impressions)} publishers in minute: {target_minute}")
+            
+            # Process each publisher's impressions
+            unix_timestamp = int(target_minute.timestamp())
+            
+            for row in publisher_impressions:
+                publisher_id = row[0]
+                impression_count = int(row[1])
+                
+                self.upsert_publisher_impressions(publisher_id, unix_timestamp, impression_count)
+            
+        except Exception as e:
+            logger.error(f"Error during publisher impressions processing: {e}")
+            raise
+        
+        logger.info(f"Publisher impressions processing completed for minute: {target_minute}")
+    
+    def upsert_publisher_impressions(self, publisher_id, unix_timestamp, impression_count):
+        """
+        Upsert impression data for a publisher in the HCD publishers table.
+        
+        Args:
+            publisher_id (str): The publisher ID
+            unix_timestamp (int): Unix timestamp of the minute
+            impression_count (int): Number of impressions for this minute
+        """
+        try:
+            # First, try to read existing record
+            select_query = """
+            SELECT impressions, last_updated
+            FROM publishers
+            WHERE publisher_id = ?
+            """
+            
+            existing_row = self.cassandra_session.execute(select_query, [publisher_id]).one()
+            
+            current_time = datetime.now(timezone.utc)
+            new_impression_tuple = (unix_timestamp, impression_count)
+            
+            if existing_row:
+                # Update existing record
+                existing_impressions = existing_row.impressions or []
+                
+                # Add new impression tuple
+                updated_impressions = existing_impressions + [new_impression_tuple]
+                
+                # Sort by timestamp (oldest first)
+                updated_impressions.sort(key=lambda x: x[0])
+                
+                # Keep only the latest 90 entries
+                if len(updated_impressions) > 90:
+                    updated_impressions = updated_impressions[-90:]
+                
+                # Update the record
+                update_query = """
+                UPDATE publishers
+                SET impressions = ?, last_updated = ?
+                WHERE publisher_id = ?
+                """
+                
+                self.cassandra_session.execute(update_query, [updated_impressions, current_time, publisher_id])
+                logger.debug(f"Updated publisher {publisher_id} with {impression_count} impressions for timestamp {unix_timestamp}")
+                
+            else:
+                # Insert new record
+                new_impressions = [new_impression_tuple]
+                
+                insert_query = """
+                INSERT INTO publishers (publisher_id, impressions, conversions, last_updated)
+                VALUES (?, ?, ?, ?)
+                """
+                
+                self.cassandra_session.execute(insert_query, [publisher_id, new_impressions, [], current_time])
+                logger.debug(f"Inserted new publisher {publisher_id} with {impression_count} impressions for timestamp {unix_timestamp}")
+                
+        except Exception as e:
+            logger.error(f"Error upserting publisher impressions for {publisher_id}: {e}")
+            raise
     
     def identify_conversions(self, target_minute):
         """
@@ -139,6 +292,10 @@ class AffiliateJunctionInsights:
     def cleanup(self):
         """Clean up connections"""
         try:
+            if self.cassandra_session:
+                self.cassandra_session.shutdown()
+                logger.info("Cassandra connection closed")
+            
             if self.presto_connection:
                 self.presto_connection.close()
                 logger.info("Presto connection closed")
@@ -151,8 +308,9 @@ class AffiliateJunctionInsights:
         try:
             logger.info("Starting Affiliate Junction Insights")
             
-            # Initialize connection
+            # Initialize connections
             self.connect_to_presto()
+            self.connect_to_cassandra()
             
             logger.info("Entering main loop...")
             
@@ -174,7 +332,8 @@ class AffiliateJunctionInsights:
                         # For subsequent runs, process the current minute (which just completed)
                         target_minute = current_time.replace(second=0, microsecond=0)
                     
-                    # Main processing task: identify conversions
+                    # Main processing tasks
+                    self.process_publisher_impressions(target_minute)
                     self.identify_conversions(target_minute)
                     
                     execution_time = time.time() - iteration_start

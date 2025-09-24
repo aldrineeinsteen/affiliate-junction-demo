@@ -56,18 +56,18 @@ AND default_time_to_live = 600;
 
 -- Create publishers table with trailing 90-minute data using lists
 CREATE TABLE IF NOT EXISTS publishers (
-    publisher_id TEXT,
-    impressions LIST<FROZEN<TUPLE<BIGINT, INT>>>, -- (unix_timestamp, count)
-    conversions LIST<FROZEN<TUPLE<BIGINT, INT>>>, -- (unix_timestamp, count)
-    last_updated TIMESTAMP,
-    PRIMARY KEY (publisher_id)
-) WITH default_time_to_live = 5400; -- 90 minutes in seconds
+    publisher_id text PRIMARY KEY,
+    impressions map<bigint,int>,
+    conversions map<bigint,int>,
+    last_updated timestamp
+) WITH default_time_to_live = 21600;
+
 
 -- Create advertisers table with trailing 90-minute data using lists  
 CREATE TABLE IF NOT EXISTS advertisers (
     advertiser_id TEXT,
-    impressions LIST<FROZEN<TUPLE<BIGINT, INT>>>, -- (unix_timestamp, count)
-    conversions LIST<FROZEN<TUPLE<BIGINT, INT>>>, -- (unix_timestamp, count)
+    impressions map<bigint, int>,    
+    conversions map<bigint, int>,    
     last_updated TIMESTAMP,
     PRIMARY KEY (advertiser_id)
-) WITH default_time_to_live = 5400; -- 90 minutes in seconds
+) WITH default_time_to_live = 21600; 
