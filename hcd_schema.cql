@@ -53,3 +53,21 @@ CREATE TABLE IF NOT EXISTS conversions_by_minute (
     PRIMARY KEY ((bucket_date, bucket), ts, publishers_id, advertisers_id, cookie_id, conversion_id)
 ) WITH CLUSTERING ORDER BY (ts ASC)
 AND default_time_to_live = 600;
+
+-- Create publishers table with trailing 90-minute data using lists
+CREATE TABLE IF NOT EXISTS publishers (
+    publisher_id TEXT,
+    impressions LIST<FROZEN<TUPLE<BIGINT, INT>>>, -- (unix_timestamp, count)
+    conversions LIST<FROZEN<TUPLE<BIGINT, INT>>>, -- (unix_timestamp, count)
+    last_updated TIMESTAMP,
+    PRIMARY KEY (publisher_id)
+) WITH default_time_to_live = 5400; -- 90 minutes in seconds
+
+-- Create advertisers table with trailing 90-minute data using lists  
+CREATE TABLE IF NOT EXISTS advertisers (
+    advertiser_id TEXT,
+    impressions LIST<FROZEN<TUPLE<BIGINT, INT>>>, -- (unix_timestamp, count)
+    conversions LIST<FROZEN<TUPLE<BIGINT, INT>>>, -- (unix_timestamp, count)
+    last_updated TIMESTAMP,
+    PRIMARY KEY (advertiser_id)
+) WITH default_time_to_live = 5400; -- 90 minutes in seconds
