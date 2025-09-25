@@ -72,3 +72,14 @@ CREATE TABLE IF NOT EXISTS advertisers (
     last_updated TIMESTAMP,
     PRIMARY KEY (advertiser_id)
 ) WITH default_time_to_live = 21600;
+
+-- Create services table for managing system services
+CREATE TABLE IF NOT EXISTS services (
+    name TEXT PRIMARY KEY,
+    description TEXT,
+    last_updated TIMESTAMP,
+    stats TEXT,
+    settings TEXT
+);
+
+

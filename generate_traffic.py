@@ -7,6 +7,7 @@ import logging
 import random
 import subprocess
 import uuid
+import json
 from datetime import datetime, timezone, date
 from dotenv import load_dotenv
 from cassandra.cluster import Cluster, ExecutionProfile
@@ -28,12 +29,38 @@ class SyntheticTrafficGenerator:
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
         self.load_environment()
         
+        # Store current settings for comparison
+        self.current_settings = {
+            'AFFILIATE_JUNCTION_ADVERTISERS_COUNT': int(os.getenv('AFFILIATE_JUNCTION_ADVERTISERS_COUNT')),
+            'AFFILIATE_JUNCTION_PUBLISHERS_COUNT': int(os.getenv('AFFILIATE_JUNCTION_PUBLISHERS_COUNT')),
+            'AFFILIATE_JUNCTION_COOKIES_COUNT': int(os.getenv('AFFILIATE_JUNCTION_COOKIES_COUNT')),
+            'AFFILIATE_JUNCTION_HISTORY_MINS': int(os.getenv('AFFILIATE_JUNCTION_HISTORY_MINS')),
+            'AFFILIATE_JUNCTION_TRAFFIC_MIN': int(os.getenv('AFFILIATE_JUNCTION_TRAFFIC_MIN')),
+            'AFFILIATE_JUNCTION_SALES_MIN': int(os.getenv('AFFILIATE_JUNCTION_SALES_MIN')),
+            'AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT': int(os.getenv('AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT'))
+        }
+        
         # Generate indexes of string IDs for advertisers and publishers
-        self.advertisers = [f"AID_{i+1:06d}" for i in range(int(os.getenv('AFFILIATE_JUNCTION_ADVERTISERS_COUNT')))]
-        self.publishers = [f"PID_{i+1:06d}" for i in range(int(os.getenv('AFFILIATE_JUNCTION_PUBLISHERS_COUNT')))]
+        self.advertisers = [f"AID_{i+1:06d}" for i in range(self.current_settings['AFFILIATE_JUNCTION_ADVERTISERS_COUNT'])]
+        self.publishers = [f"PID_{i+1:06d}" for i in range(self.current_settings['AFFILIATE_JUNCTION_PUBLISHERS_COUNT'])]
         
         # Generate pool of cookie IDs based on environment variable
-        self.cookie_ids = [f"CID_{i+1:06d}" for i in range(int(os.getenv('AFFILIATE_JUNCTION_COOKIES_COUNT')))]
+        self.cookie_ids = [f"CID_{i+1:06d}" for i in range(self.current_settings['AFFILIATE_JUNCTION_COOKIES_COUNT'])]
+        
+        # Initialize stats tracking with timeseries data structure
+        self.stats_timeseries = {
+            'impression_aggregates_count': [],
+            'total_impressions': [],
+            'impressions_by_minute_count': [],
+            'conversion_count': [],
+            'conversions_by_minute_count': [],
+            'execution_time_seconds': [],
+            'current_advertisers_count': [],
+            'current_publishers_count': [],
+            'current_cookies_count': [],
+            'traffic_per_minute': [],
+            'sales_per_minute': []
+        }
         
         logger.info(f"Generated {len(self.advertisers)} advertisers, {len(self.publishers)} publishers, and {len(self.cookie_ids)} cookie IDs")
         
@@ -222,6 +249,162 @@ class SyntheticTrafficGenerator:
             logger.error(f"Failed to prepare statements: {e}")
             raise
     
+    def poll_services_table(self):
+        """Poll the services table to check for configuration updates"""
+        try:
+            # Query for the generate_traffic service record
+            query = f"SELECT name, description, last_updated, settings FROM {os.getenv('HCD_KEYSPACE')}.services WHERE name = 'generate_traffic'"
+            result = self.cassandra_session.execute(query)
+            
+            service_record = result.one()
+            
+            if service_record:
+                # Service record exists, check if settings have changed
+                logger.debug("Found existing generate_traffic service record")
+                self.update_settings_from_service(service_record)
+            else:
+                # No service record exists, insert a new one
+                logger.info("No generate_traffic service record found, inserting new record")
+                self.insert_service_record()
+                
+        except Exception as e:
+            logger.error(f"Failed to poll services table: {e}")
+            # Continue with current settings if polling fails
+    
+    def insert_service_record(self):
+        """Insert a new service record with default settings from .env"""
+        try:
+            settings_json = json.dumps(self.current_settings)
+            
+            insert_query = f"""
+                INSERT INTO {os.getenv('HCD_KEYSPACE')}.services (name, description, last_updated, settings, stats)
+                VALUES (%s, %s, %s, %s, %s)
+            """
+            
+            self.cassandra_session.execute(insert_query, [
+                'generate_traffic',
+                'Synthetic traffic generator service',
+                datetime.now(timezone.utc),
+                settings_json,
+                '{}'  # Empty stats JSON object
+            ])
+            
+            logger.info("Successfully inserted new generate_traffic service record")
+            
+        except Exception as e:
+            logger.error(f"Failed to insert service record: {e}")
+    
+    def update_settings_from_service(self, service_record):
+        """Update runtime settings if they have changed in the services table"""
+        try:
+            if service_record.settings:
+                new_settings = json.loads(service_record.settings)
+                
+                # Check if settings have changed
+                settings_changed = False
+                for key, value in new_settings.items():
+                    if key in self.current_settings and self.current_settings[key] != value:
+                        logger.info(f"Setting {key} changed from {self.current_settings[key]} to {value}")
+                        self.current_settings[key] = value
+                        settings_changed = True
+                
+                # If settings changed, regenerate the data pools
+                if settings_changed:
+                    self.regenerate_data_pools()
+                    logger.info("Settings updated from services table")
+                    
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.error(f"Failed to parse settings from services table: {e}")
+        except Exception as e:
+            logger.error(f"Failed to update settings: {e}")
+    
+    def regenerate_data_pools(self):
+        """Regenerate advertisers, publishers, and cookie pools based on updated settings"""
+        try:
+            # Regenerate advertisers
+            self.advertisers = [f"AID_{i+1:06d}" for i in range(self.current_settings['AFFILIATE_JUNCTION_ADVERTISERS_COUNT'])]
+            
+            # Regenerate publishers
+            self.publishers = [f"PID_{i+1:06d}" for i in range(self.current_settings['AFFILIATE_JUNCTION_PUBLISHERS_COUNT'])]
+            
+            # Regenerate cookie IDs
+            self.cookie_ids = [f"CID_{i+1:06d}" for i in range(self.current_settings['AFFILIATE_JUNCTION_COOKIES_COUNT'])]
+            
+            logger.info(f"Regenerated pools: {len(self.advertisers)} advertisers, {len(self.publishers)} publishers, {len(self.cookie_ids)} cookie IDs")
+            
+        except Exception as e:
+            logger.error(f"Failed to regenerate data pools: {e}")
+    
+    def collect_iteration_stats(self, impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data, execution_time):
+        """Collect stats from current iteration"""
+        try:
+            current_timestamp = int(time.time())
+            
+            # Calculate total impressions
+            total_impressions = sum(record['impressions'] for record in impression_data) if impression_data else 0
+            
+            # Collect all stats as (timestamp, value) tuples
+            stats = {
+                'impression_aggregates_count': (current_timestamp, len(impression_data)),
+                'total_impressions': (current_timestamp, total_impressions),
+                'impressions_by_minute_count': (current_timestamp, len(impressions_by_minute_data)),
+                'conversion_count': (current_timestamp, len(conversion_data)),
+                'conversions_by_minute_count': (current_timestamp, len(conversions_by_minute_data)),
+                'execution_time_seconds': (current_timestamp, round(execution_time, 2)),
+                'current_advertisers_count': (current_timestamp, len(self.advertisers)),
+                'current_publishers_count': (current_timestamp, len(self.publishers)),
+                'current_cookies_count': (current_timestamp, len(self.cookie_ids)),
+                'traffic_per_minute': (current_timestamp, self.current_settings['AFFILIATE_JUNCTION_TRAFFIC_MIN']),
+                'sales_per_minute': (current_timestamp, self.current_settings['AFFILIATE_JUNCTION_SALES_MIN'])
+            }
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Failed to collect iteration stats: {e}")
+            return {}
+    
+    def update_timeseries_stats(self, iteration_stats):
+        """Update timeseries data with new stats, maintaining 90 datapoints"""
+        try:
+            for metric_name, (timestamp, value) in iteration_stats.items():
+                if metric_name in self.stats_timeseries:
+                    # Add new datapoint
+                    self.stats_timeseries[metric_name].append([timestamp, value])
+                    
+                    # Maintain only the most recent 90 datapoints
+                    if len(self.stats_timeseries[metric_name]) > 90:
+                        self.stats_timeseries[metric_name] = self.stats_timeseries[metric_name][-90:]
+            
+            logger.debug(f"Updated timeseries stats with {len(iteration_stats)} metrics")
+            
+        except Exception as e:
+            logger.error(f"Failed to update timeseries stats: {e}")
+    
+    def update_service_stats(self):
+        """Update the services table with current stats"""
+        try:
+            # Serialize stats as JSON
+            stats_json = json.dumps(self.stats_timeseries)
+            
+            # Update the service record with new stats
+            update_query = f"""
+                UPDATE {os.getenv('HCD_KEYSPACE')}.services 
+                SET stats = %s, last_updated = %s
+                WHERE name = %s
+            """
+            
+            self.cassandra_session.execute(update_query, [
+                stats_json,
+                datetime.now(timezone.utc),
+                'generate_traffic'
+            ])
+            
+            logger.debug("Successfully updated service stats")
+            
+        except Exception as e:
+            logger.error(f"Failed to update service stats: {e}")
+    
     def generate_synthetic_data(self):
         """Generate synthetic traffic data"""
         logger.info("Generating synthetic traffic data...")
@@ -237,7 +420,7 @@ class SyntheticTrafficGenerator:
         impression_aggregates = {}
         impressions_by_minute_data = []
         
-        for _ in range(int(os.getenv('AFFILIATE_JUNCTION_TRAFFIC_MIN'))):
+        for _ in range(self.current_settings['AFFILIATE_JUNCTION_TRAFFIC_MIN']):
             publisher_id = random.choice(self.publishers)
             advertiser_id = random.choice(self.advertisers)
             cookie_id = self.get_random_cookie_id()
@@ -260,7 +443,7 @@ class SyntheticTrafficGenerator:
             
             # Generate individual impression for impressions_by_minute table
             # Create a hash bucket based on publisher_id for write distribution
-            bucket = hash(publisher_id) % int(os.getenv("AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT"))
+            bucket = hash(publisher_id) % self.current_settings["AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT"]
             
             # Generate timeuuid for precise ordering
             ts_uuid = uuid_from_time(now)
@@ -285,7 +468,7 @@ class SyntheticTrafficGenerator:
         conversion_data = []
         conversions_by_minute_data = []
         
-        for _ in range(int(os.getenv('AFFILIATE_JUNCTION_SALES_MIN'))):
+        for _ in range(self.current_settings['AFFILIATE_JUNCTION_SALES_MIN']):
             advertiser_id = random.choice(self.advertisers)
             publisher_id = random.choice(self.publishers)  # Add publisher for conversions_by_minute
             cookie_id = self.get_random_cookie_id()
@@ -298,7 +481,7 @@ class SyntheticTrafficGenerator:
             
             # Generate individual conversion for conversions_by_minute table
             # Create a hash bucket based on advertiser_id for write distribution
-            bucket = hash(advertiser_id) % int(os.getenv("AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT"))
+            bucket = hash(advertiser_id) % self.current_settings["AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT"]
             
             # Generate timeuuid for precise ordering
             ts_uuid = uuid_from_time(now)
@@ -320,6 +503,9 @@ class SyntheticTrafficGenerator:
         
         # Insert data to Cassandra
         self.insert_data_to_cassandra(impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data)
+        
+        # Return data for stats collection
+        return impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data
     
     def insert_data_to_cassandra(self, impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data):
         """Insert data into Cassandra using batch operations with dual write pattern"""
@@ -434,11 +620,27 @@ class SyntheticTrafficGenerator:
                     # Record start time for this iteration
                     iteration_start = time.time()
                     
+                    # Poll services table for configuration updates
+                    self.poll_services_table()
+                    
                     # Generate and process synthetic data
-                    self.generate_synthetic_data()
+                    impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data = self.generate_synthetic_data()
                     
                     # Calculate how long the data generation took
                     execution_time = time.time() - iteration_start
+                    
+                    # Collect stats from this iteration
+                    iteration_stats = self.collect_iteration_stats(
+                        impression_data, impressions_by_minute_data, 
+                        conversion_data, conversions_by_minute_data, 
+                        execution_time
+                    )
+                    
+                    # Update timeseries data with new stats
+                    self.update_timeseries_stats(iteration_stats)
+                    
+                    # Write stats to services table
+                    self.update_service_stats()
                     
                     # Sleep for the remaining time to maintain 60-second intervals
                     sleep_time = max(0, 60 - execution_time)

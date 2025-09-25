@@ -20,6 +20,9 @@
  - stats (json dict) - lifetime stats, lifetime runtime, average per time period
  - settings (json dict)
 
+* stats:
+ - timeseries all of the metrics - we will graph these.  retain 90 datapoints.  store as (unixtime,value) tuples
+
 
 
 
