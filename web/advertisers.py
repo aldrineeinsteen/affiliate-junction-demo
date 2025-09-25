@@ -113,6 +113,65 @@ def get_advertiser_dashboard_data(advertiser_id: str) -> Optional[Dict]:
         return None
 
 
+def get_advertiser_chart_data(advertiser_id: str) -> Optional[Dict]:
+    """
+    Get time-series chart data for a specific advertiser formatted for Chart.js.
+    
+    Args:
+        advertiser_id: The advertiser ID to look up
+        
+    Returns:
+        Dictionary with chart data or None if not found
+        Format: {
+            "labels": ["2023-09-25 10:00", "2023-09-25 10:01", ...],
+            "impressions": [100, 120, 95, ...],
+            "conversions": [5, 8, 3, ...]
+        }
+    """
+    try:
+        query = "SELECT advertiser_id, impressions, conversions FROM advertisers WHERE advertiser_id = ?"
+        
+        result = hcd_operations.execute_query_with_retry(query, [advertiser_id])
+        
+        for row in result:
+            impressions_data = _parse_time_series_data(row.impressions)
+            conversions_data = _parse_time_series_data(row.conversions)
+            
+            # Merge and sort by timestamp
+            all_timestamps = set()
+            impressions_dict = {item['timestamp']: item['count'] for item in impressions_data}
+            conversions_dict = {item['timestamp']: item['count'] for item in conversions_data}
+            
+            all_timestamps.update(impressions_dict.keys())
+            all_timestamps.update(conversions_dict.keys())
+            
+            # Sort timestamps and create chart data
+            sorted_timestamps = sorted(all_timestamps)
+            
+            labels = []
+            impressions_values = []
+            conversions_values = []
+            
+            for timestamp in sorted_timestamps:
+                # Convert unix timestamp to readable format
+                labels.append(_format_timestamp(timestamp))
+                impressions_values.append(impressions_dict.get(timestamp, 0))
+                conversions_values.append(conversions_dict.get(timestamp, 0))
+            
+            return {
+                "advertiser_id": row.advertiser_id,
+                "labels": labels,
+                "impressions": impressions_values,
+                "conversions": conversions_values
+            }
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error fetching advertiser chart data for {advertiser_id}: {e}")
+        return None
+
+
 def _sum_json_counts(json_data: str) -> int:
     """
     Sum up all count values from a JSON string containing an array of time-count tuples.
@@ -144,6 +203,63 @@ def _sum_json_counts(json_data: str) -> int:
     except (json.JSONDecodeError, TypeError, ValueError) as e:
         logger.warning(f"Error parsing JSON data: {e}")
         return 0
+
+
+def _parse_time_series_data(json_data: str) -> List[Dict]:
+    """
+    Parse time-series JSON data into a list of timestamp-count dictionaries.
+    
+    Args:
+        json_data: JSON string containing time-count data
+        
+    Returns:
+        List of dictionaries with 'timestamp' and 'count' keys
+    """
+    try:
+        if not json_data or json_data.strip() == '':
+            return []
+            
+        data = json.loads(json_data)
+        if not isinstance(data, list):
+            return []
+            
+        result = []
+        for item in data:
+            if isinstance(item, dict) and 'ts' in item and 'count' in item:
+                result.append({
+                    'timestamp': item['ts'],
+                    'count': item['count']
+                })
+            elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                # Handle tuple format [timestamp, count]
+                result.append({
+                    'timestamp': item[0],
+                    'count': item[1]
+                })
+                
+        return result
+        
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
+        logger.warning(f"Error parsing time-series JSON data: {e}")
+        return []
+
+
+def _format_timestamp(unix_timestamp: int) -> str:
+    """
+    Format a unix timestamp for chart display.
+    
+    Args:
+        unix_timestamp: Unix timestamp
+        
+    Returns:
+        Formatted time string
+    """
+    try:
+        dt = time.strftime('%H:%M', time.localtime(unix_timestamp))
+        return dt
+    except (ValueError, OSError) as e:
+        logger.warning(f"Error formatting timestamp {unix_timestamp}: {e}")
+        return str(unix_timestamp)
 
 
 def get_all_advertisers() -> List[Dict[str, str]]:

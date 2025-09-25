@@ -220,6 +220,45 @@ def get_advertiser_dashboard_endpoint(advertiser_id: str):
             )
 
 
+# --- Advertiser Chart Data API endpoint ---
+@app.get("/api/advertisers/{advertiser_id}/chart")
+def get_advertiser_chart_endpoint(advertiser_id: str):
+    """API endpoint to get chart data for a specific advertiser"""
+    with cassandra_wrapper.request_context():
+        try:
+            chart_data = advertisers.get_advertiser_chart_data(advertiser_id)
+            
+            # Get query metrics for this request
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            if chart_data:
+                return {
+                    "chart": chart_data,
+                    "query_metrics": query_metrics
+                }
+            else:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": f"Advertiser {advertiser_id} not found",
+                        "query_metrics": query_metrics
+                    }
+                )
+        except Exception as e:
+            logger.error(f"Error fetching advertiser chart data for {advertiser_id}: {e}")
+            
+            # Still get query metrics even if there was an error
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Failed to fetch advertiser chart data",
+                    "query_metrics": query_metrics
+                }
+            )
+
+
 # --- Advertiser Dashboard UI endpoint ---
 @app.get("/advertiser/{advertiser_id}", response_class=HTMLResponse)
 def advertiser_dashboard(request: Request, advertiser_id: str):
