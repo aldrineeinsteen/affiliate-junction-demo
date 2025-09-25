@@ -166,48 +166,117 @@ body {
 }
 
 .query-item {
-  background: #f8f9fa;
+  background: #ffffff;
   border: 1px solid #e9ecef;
   border-radius: 8px;
-  padding: 12px;
+  padding: 0;
   margin-bottom: 12px;
   font-size: 12px;
   transition: all 0.2s ease;
+  overflow: hidden;
 }
 
 .query-item:hover {
-  background: #e9ecef;
+  background: #f8f9fa;
   border-color: #0d6efd;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-.query-item.active {
+.query-item.success {
   border-color: #198754;
-  background: #d1e7dd;
 }
 
 .query-item.error {
   border-color: #dc3545;
-  background: #f8d7da;
+}
+
+.query-item-container {
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.query-item-container:last-child {
+  border-bottom: none;
 }
 
 .query-item-header {
   display: flex;
-  justify-content: between;
   align-items: center;
   margin-bottom: 8px;
+  gap: 8px;
 }
 
+.query-type-badge {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.query-type-badge.hcd {
+  background: #e3f2fd;
+  color: #1565c0;
+  border: 1px solid #bbdefb;
+}
+
+.query-type-badge.presto {
+  background: #f3e5f5;
+  color: #7b1fa2;
+  border: 1px solid #ce93d8;
+}
+
+.query-type-badge.http {
+  background: #e8f5e8;
+  color: #2e7d32;
+  border: 1px solid #c8e6c9;
+}
+
+.query-execution-time {
+  background: #fff3e0;
+  color: #ef6c00;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  font-size: 10px;
+  border: 1px solid #ffcc02;
+}
+
+.query-item-time {
+  color: #6c757d;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.query-item-url {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 11px;
+  color: #495057;
+  word-break: break-all;
+  margin-bottom: 6px;
+  padding: 4px 0;
+}
+
+.query-item-description {
+  color: #6c757d;
+  font-size: 11px;
+  font-style: italic;
+  margin-top: 4px;
+  padding: 4px 0;
+}
+
+.query-item-response {
+  color: #6c757d;
+  font-size: 10px;
+}
+
+/* Legacy method badge styling for fallback */
 .query-item-method {
   background: #0d6efd;
   color: white;
   padding: 2px 8px;
   border-radius: 4px;
   font-weight: 600;
-  font-size: 10px;
-}
-
-.query-item-time {
-  color: #6c757d;
   font-size: 10px;
 }
 
@@ -231,19 +300,6 @@ body {
 .query-item-status.pending {
   background: #fff3cd;
   color: #664d03;
-}
-
-.query-item-url {
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  font-size: 11px;
-  color: #495057;
-  word-break: break-all;
-  margin-bottom: 4px;
-}
-
-.query-item-response {
-  color: #6c757d;
-  font-size: 10px;
 }
 
 .query-panel-footer {

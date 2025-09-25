@@ -545,7 +545,7 @@ function initializeQueryPanel() {
 let queryCounter = 0;
 let totalResponseTime = 0;
 
-function addQueryToPanel(method, url, status = 'pending') {
+function addQueryToPanel(method, url, status = 'pending', queryMetrics = null) {
   const queryList = document.getElementById('queryList');
   const noQueries = document.getElementById('noQueries');
   
@@ -562,17 +562,45 @@ function addQueryToPanel(method, url, status = 'pending') {
   const queryItem = document.createElement('div');
   queryItem.className = `query-item ${status}`;
   queryItem.id = queryId;
-  queryItem.innerHTML = `
-    <div class="query-item-header">
-      <span class="query-item-method">${method}</span>
-      <span class="query-item-time">${timestamp}</span>
-      <span class="query-item-status ${status}">${status.toUpperCase()}</span>
-    </div>
-    <div class="query-item-url">${url}</div>
-    <div class="query-item-response">
-      <span id="${queryId}-response">Executing...</span>
-    </div>
-  `;
+  
+  // If we have query metrics, show database queries
+  if (queryMetrics && queryMetrics.length > 0) {
+    let queriesHtml = '';
+    queryMetrics.forEach(query => {
+      const queryType = query.query_type || 'Unknown';
+      const queryTypeClass = queryType.toLowerCase();
+      const executionTime = query.execution_time_ms ? `${Math.round(query.execution_time_ms)}ms` : 'N/A';
+      const description = query.query_description || 'Database query';
+      
+      queriesHtml += `
+        <div class="query-item-container">
+          <div class="query-item-header">
+            <span class="query-type-badge ${queryTypeClass}">${queryType}</span>
+            <span class="query-execution-time">${executionTime}</span>
+            <span class="query-item-time mx-2">${timestamp}</span>
+          </div>
+          <div class="query-item-url">${url}</div>
+          <div class="query-item-description">${description}</div>
+        </div>
+      `;
+    });
+    queryItem.innerHTML = queriesHtml;
+  } else {
+    // Fallback to HTTP request display
+    queryItem.innerHTML = `
+      <div class="query-item-container">
+        <div class="query-item-header">
+          <span class="query-type-badge http">${method}</span>
+          <span class="query-execution-time" id="${queryId}-time">Executing...</span>
+          <span class="query-item-time mx-2">${timestamp}</span>
+        </div>
+        <div class="query-item-url">${url}</div>
+        <div class="query-item-response">
+          <span id="${queryId}-response">Executing...</span>
+        </div>
+      </div>
+    `;
+  }
   
   // Add to top of list
   queryList.insertBefore(queryItem, queryList.firstChild);
@@ -657,20 +685,39 @@ function clearQueryBadge() {
 const originalFetch = window.fetch;
 window.fetch = function(url, options = {}) {
   const method = (options.method || 'GET').toUpperCase();
-  const queryId = addQueryToPanel(method, url);
   const startTime = Date.now();
   
   return originalFetch(url, options)
     .then(response => {
       const responseTime = Date.now() - startTime;
       const status = response.ok ? 'success' : 'error';
-      const details = response.ok ? `${response.status} OK` : `${response.status} ${response.statusText}`;
       
-      updateQueryStatus(queryId, status, responseTime, details);
-      return response;
+      // Clone the response to read it without consuming it
+      return response.clone().json().then(data => {
+        let queryId;
+        
+        // If the response contains query_metrics, display those
+        if (data && data.query_metrics && data.query_metrics.length > 0) {
+          queryId = addQueryToPanel(method, url, status, data.query_metrics);
+        } else {
+          // Fallback to HTTP request tracking
+          queryId = addQueryToPanel(method, url, status);
+          const details = response.ok ? `${response.status} OK` : `${response.status} ${response.statusText}`;
+          updateQueryStatus(queryId, status, responseTime, details);
+        }
+        
+        return response;
+      }).catch(() => {
+        // If JSON parsing fails, fallback to HTTP request tracking
+        const queryId = addQueryToPanel(method, url, status);
+        const details = response.ok ? `${response.status} OK` : `${response.status} ${response.statusText}`;
+        updateQueryStatus(queryId, status, responseTime, details);
+        return response;
+      });
     })
     .catch(error => {
       const responseTime = Date.now() - startTime;
+      const queryId = addQueryToPanel(method, url, 'error');
       updateQueryStatus(queryId, 'error', responseTime, error.message);
       throw error;
     });

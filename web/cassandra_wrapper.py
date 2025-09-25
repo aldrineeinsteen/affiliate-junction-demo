@@ -146,7 +146,7 @@ class CassandraQueryWrapper:
             query_id=query_id,
             query_text=query,
             query_description=query_description,
-            query_type="Cassandra",
+            query_type="HCD",
             parameters=parameters,
             start_time=datetime.now(timezone.utc),
             end_time=None,
