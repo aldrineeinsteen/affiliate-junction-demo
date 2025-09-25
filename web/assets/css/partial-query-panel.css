@@ -105,6 +105,17 @@
   margin-bottom: 4px;
 }
 
+.query-panel-header .btn-sm {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.query-panel-header .btn-outline-secondary:hover {
+  background: #6c757d;
+  border-color: #6c757d;
+}
+
 .query-panel-body {
   flex: 1;
   overflow-y: auto;

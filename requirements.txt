@@ -17,4 +17,5 @@ requests>=2.31.0  # For HTTP requests if needed
 fastapi
 uvicorn[standard]
 jinja2
+sqlparse
 

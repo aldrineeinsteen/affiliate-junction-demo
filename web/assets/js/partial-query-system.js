@@ -5,8 +5,8 @@
  */
 
 // Query tracking state
-let queryCounter = 0;
-let totalResponseTime = 0;
+let hcdQueryCount = 0;
+let prestoQueryCount = 0;
 let unreadQueryCount = 0;
 
 /**
@@ -16,6 +16,7 @@ let unreadQueryCount = 0;
 function initializeQueryPanel() {
   const panel = document.getElementById('queryPanel');
   const toggleBtn = document.getElementById('queryPanelToggle');
+  const clearBtn = document.getElementById('clearQueriesBtn');
   
   if (!panel || !toggleBtn) {
     console.warn('Query panel elements not found. Query panel initialization skipped.');
@@ -40,6 +41,15 @@ function initializeQueryPanel() {
       clearQueryBadge();
     }
   });
+  
+  // Clear queries button click
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function() {
+      if (confirm('Are you sure you want to clear all query history?')) {
+        resetQueryCounters();
+      }
+    });
+  }
   
   // Close panel when clicking outside (optional)
   document.addEventListener('click', function(event) {
@@ -77,8 +87,7 @@ function addQueryToPanel(method, url, status = 'pending', queryMetrics = null) {
     noQueries.style.display = 'none';
   }
   
-  queryCounter++;
-  const queryId = `query-${Date.now()}-${queryCounter}`;
+  const queryId = `query-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   const timestamp = new Date().toLocaleTimeString();
   
   // Create query item
@@ -95,6 +104,13 @@ function addQueryToPanel(method, url, status = 'pending', queryMetrics = null) {
       const executionTime = query.execution_time_ms ? `${Math.round(query.execution_time_ms)}ms` : 'N/A';
       const description = query.query_description || 'Database query';
       
+      // Update query engine counters
+      if (queryType.toLowerCase() === 'hcd') {
+        hcdQueryCount++;
+      } else if (queryType.toLowerCase() === 'presto') {
+        prestoQueryCount++;
+      }
+      
       queriesHtml += `
         <div class="query-item-container">
           <div class="query-item-header">
@@ -102,8 +118,8 @@ function addQueryToPanel(method, url, status = 'pending', queryMetrics = null) {
             <span class="query-execution-time">${executionTime}</span>
             <span class="query-item-time mx-2">${timestamp}</span>
           </div>
-          <div class="query-item-url">${url}</div>
           <div class="query-item-description">${description}</div>
+          <div class="query-item-url">${url}</div>
         </div>
       `;
     });
@@ -163,7 +179,6 @@ function updateQueryStatus(queryId, status, responseTime = null, details = null)
     let responseText = '';
     if (responseTime !== null) {
       responseText = `${responseTime}ms`;
-      totalResponseTime += responseTime;
     }
     if (details) {
       responseText += ` • ${details}`;
@@ -181,16 +196,15 @@ function updateQueryStatus(queryId, status, responseTime = null, details = null)
  * Update the query statistics display
  */
 function updateQueryStats() {
-  const totalQueriesEl = document.getElementById('totalQueries');
-  const avgResponseTimeEl = document.getElementById('avgResponseTime');
+  const hcdQueryCountEl = document.getElementById('hcdQueryCount');
+  const prestoQueryCountEl = document.getElementById('prestoQueryCount');
   
-  if (totalQueriesEl) {
-    totalQueriesEl.textContent = queryCounter;
+  if (hcdQueryCountEl) {
+    hcdQueryCountEl.textContent = hcdQueryCount;
   }
   
-  if (avgResponseTimeEl) {
-    const avgTime = queryCounter > 0 ? Math.round(totalResponseTime / queryCounter) : 0;
-    avgResponseTimeEl.textContent = `${avgTime}ms`;
+  if (prestoQueryCountEl) {
+    prestoQueryCountEl.textContent = prestoQueryCount;
   }
 }
 
@@ -232,6 +246,33 @@ function clearQueryBadge() {
 }
 
 /**
+ * Reset all query counters
+ */
+function resetQueryCounters() {
+  hcdQueryCount = 0;
+  prestoQueryCount = 0;
+  unreadQueryCount = 0;
+  
+  // Clear the query list
+  const queryList = document.getElementById('queryList');
+  const noQueries = document.getElementById('noQueries');
+  
+  if (queryList) {
+    // Remove all query items but keep the no-queries message
+    const queryItems = queryList.querySelectorAll('.query-item');
+    queryItems.forEach(item => item.remove());
+    
+    // Show the no-queries message
+    if (noQueries) {
+      noQueries.style.display = 'block';
+    }
+  }
+  
+  updateQueryStats();
+  updateQueryBadge();
+}
+
+/**
  * Enhanced fetch wrapper that automatically tracks all API requests
  * This replaces the global fetch function to provide automatic query monitoring
  */
@@ -256,6 +297,9 @@ function initializeEnhancedFetch() {
           // If the response contains query_metrics, display those
           if (data && data.query_metrics && data.query_metrics.length > 0) {
             queryId = addQueryToPanel(method, url, status, data.query_metrics);
+            
+            // Update stats after processing metrics
+            updateQueryStats();
           } else {
             // Fallback to HTTP request tracking
             queryId = addQueryToPanel(method, url, status);

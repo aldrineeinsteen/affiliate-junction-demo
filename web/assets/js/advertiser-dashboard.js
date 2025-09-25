@@ -241,22 +241,7 @@ function renderSparkline(canvasId, data, color) {
           display: false
         },
         tooltip: {
-          enabled: true,
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          titleColor: '#fff',
-          bodyColor: '#fff',
-          borderColor: color,
-          borderWidth: 1,
-          cornerRadius: 4,
-          displayColors: false,
-          callbacks: {
-            title: function() {
-              return '';
-            },
-            label: function(context) {
-              return context.parsed.y.toLocaleString();
-            }
-          }
+          enabled: false
         }
       },
       scales: {

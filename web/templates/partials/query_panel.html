@@ -10,11 +10,18 @@
   <div class="query-panel-content">
     <!-- Header -->
     <div class="query-panel-header">
-      <h5 class="mb-0">
-        <i class="bi bi-code-slash me-2"></i>
-        Query Monitor
-      </h5>
-      <small class="text-muted">Real-time query tracking</small>
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <h5 class="mb-0">
+            <i class="bi bi-code-slash me-2"></i>
+            Query Monitor
+          </h5>
+          <small class="text-muted">Real-time query tracking</small>
+        </div>
+        <button id="clearQueriesBtn" class="btn btn-sm btn-outline-secondary" type="button" title="Clear all queries">
+          <i class="bi bi-trash3"></i>
+        </button>
+      </div>
     </div>
     
     <!-- Query List -->
@@ -33,12 +40,12 @@
     <div class="query-panel-footer">
       <div class="row text-center">
         <div class="col-6">
-          <small class="text-muted">Total Queries</small>
-          <div id="totalQueries" class="fw-bold">0</div>
+          <small class="text-muted">HCD Queries</small>
+          <div id="hcdQueryCount" class="fw-bold">0</div>
         </div>
         <div class="col-6">
-          <small class="text-muted">Avg Response</small>
-          <div id="avgResponseTime" class="fw-bold">0ms</div>
+          <small class="text-muted">Presto Queries</small>
+          <div id="prestoQueryCount" class="fw-bold">0</div>
         </div>
       </div>
     </div>

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from collections import defaultdict
 from contextlib import contextmanager
 from dotenv import load_dotenv
+import sqlparse
 from cassandra.cluster import Cluster, ExecutionProfile, Session
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.policies import DCAwareRoundRobinPolicy
@@ -36,11 +37,37 @@ class QueryMetrics:
     prepared: bool
     retry_count: int = 0
     
+    @property
+    def formatted_query_text(self) -> str:
+        """Return formatted query text for better visual appeal"""
+        return self._format_query(self.query_text)
+    
+    @staticmethod
+    def _format_query(query: str) -> str:
+        """Format a query using sqlparse for better visual appeal"""
+        try:
+            # sqlparse can handle both SQL and CQL reasonably well
+            formatted = sqlparse.format(
+                query,
+                reindent=True,
+                keyword_case='upper',
+                identifier_case='lower',
+                strip_comments=False,
+                wrap_after=80,
+                comma_first=False,
+                use_space_around_operators=True
+            )
+            return formatted
+        except Exception:
+            # If formatting fails, return original query
+            return query
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert metrics to dictionary for JSON serialization"""
         return {
             "query_id": self.query_id,
             "query_text": self.query_text,
+            "formatted_query_text": self.formatted_query_text,
             "query_description": self.query_description,
             "query_type": self.query_type,
             "parameters": self.parameters,
@@ -115,6 +142,11 @@ class CassandraQueryWrapper:
         with self._query_lock:
             self._query_counter += 1
             return f"query_{self._query_counter}_{int(time.time() * 1000)}"
+    
+    @staticmethod
+    def format_query(query: str) -> str:
+        """Format a query for better visual appeal using sqlparse"""
+        return QueryMetrics._format_query(query)
     
     @contextmanager
     def request_context(self):
@@ -331,3 +363,8 @@ def execute_query_with_retry(query: str, parameters: Optional[List[Any]] = None,
                            query_description: Optional[str] = None):
     """Execute a query with connection retry logic (backward compatibility)"""
     return cassandra_wrapper.execute_query(query, parameters, max_retries, query_description)
+
+
+def format_query(query: str) -> str:
+    """Format a query for better visual appeal using sqlparse"""
+    return cassandra_wrapper.format_query(query)
