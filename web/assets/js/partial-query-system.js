@@ -9,6 +9,15 @@ let hcdQueryCount = 0;
 let prestoQueryCount = 0;
 let unreadQueryCount = 0;
 
+// Store detailed query data for the details panel
+let queryDataStore = new Map();
+
+// Track the currently active query
+let activeQueryId = null;
+
+// Track which queries have been read (clicked) vs new
+let readQueries = new Set();
+
 /**
  * Initialize the query panel functionality
  * Should be called on DOMContentLoaded for each page
@@ -63,6 +72,64 @@ function initializeQueryPanel() {
       // toggleBtn.setAttribute('aria-label', 'Show Query Panel');
     }
   });
+  
+  // Initialize query details panel
+  initializeQueryDetailsPanel();
+  
+  // Initialize keyboard event handlers
+  initializeKeyboardHandlers();
+}
+
+/**
+ * Initialize keyboard event handlers for the query system
+ */
+function initializeKeyboardHandlers() {
+  document.addEventListener('keydown', function(event) {
+    // Handle ESC key press
+    if (event.key === 'Escape') {
+      const queryPanel = document.getElementById('queryPanel');
+      const queryDetailsPanel = document.getElementById('queryDetailsPanel');
+      
+      // Close query details panel first if it's open
+      if (queryDetailsPanel && queryDetailsPanel.classList.contains('open')) {
+        hideQueryDetails();
+        event.preventDefault();
+        return;
+      }
+      
+      // Close query panel if it's open
+      if (queryPanel && queryPanel.classList.contains('open')) {
+        const toggleBtn = document.getElementById('queryPanelToggle');
+        queryPanel.classList.remove('open');
+        if (toggleBtn) {
+          toggleBtn.setAttribute('title', 'Show query panel');
+          toggleBtn.setAttribute('aria-label', 'Show Query Panel');
+        }
+        event.preventDefault();
+        return;
+      }
+    }
+  });
+}
+
+/**
+ * Initialize the query details panel functionality
+ */
+function initializeQueryDetailsPanel() {
+  const detailsPanel = document.getElementById('queryDetailsPanel');
+  const closeBtn = document.getElementById('closeQueryDetailsBtn');
+  
+  if (!detailsPanel) {
+    console.warn('Query details panel elements not found. Details panel initialization skipped.');
+    return;
+  }
+  
+  // Close button click
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function() {
+      hideQueryDetails();
+    });
+  }
 }
 
 /**
@@ -92,17 +159,30 @@ function addQueryToPanel(method, url, status = 'pending', queryMetrics = null) {
   
   // Create query item
   const queryItem = document.createElement('div');
-  queryItem.className = `query-item ${status}`;
+  queryItem.className = `query-item ${status} new`;
   queryItem.id = queryId;
   
   // If we have query metrics, show database queries
   if (queryMetrics && queryMetrics.length > 0) {
     let queriesHtml = '';
-    queryMetrics.forEach(query => {
+    queryMetrics.forEach((query, index) => {
       const queryType = query.query_type || 'Unknown';
       const queryTypeClass = queryType.toLowerCase();
       const executionTime = query.execution_time_ms ? `${Math.round(query.execution_time_ms)}ms` : 'N/A';
       const description = query.query_description || 'Database query';
+      
+      // Store detailed query data for the details panel
+      const itemQueryId = `${queryId}-${index}`;
+      queryDataStore.set(itemQueryId, {
+        description: description,
+        formatted_query_text: query.formatted_query_text || 'Query text not available',
+        parameters: query.parameters || [],
+        rowsReturned: query.rows_returned || 0,
+        executionTime: executionTime,
+        queryType: queryType,
+        timestamp: timestamp,
+        url: url
+      });
       
       // Update query engine counters
       if (queryType.toLowerCase() === 'hcd') {
@@ -112,7 +192,7 @@ function addQueryToPanel(method, url, status = 'pending', queryMetrics = null) {
       }
       
       queriesHtml += `
-        <div class="query-item-container">
+        <div class="query-item-container" onclick="showQueryDetails('${itemQueryId}')" style="cursor: pointer;">
           <div class="query-item-header">
             <span class="query-type-badge ${queryTypeClass}">${queryType}</span>
             <span class="query-execution-time">${executionTime}</span>
@@ -124,21 +204,6 @@ function addQueryToPanel(method, url, status = 'pending', queryMetrics = null) {
       `;
     });
     queryItem.innerHTML = queriesHtml;
-  } else {
-    // Fallback to HTTP request display
-    queryItem.innerHTML = `
-      <div class="query-item-container">
-        <div class="query-item-header">
-          <span class="query-type-badge http">${method}</span>
-          <span class="query-execution-time" id="${queryId}-time">Executing...</span>
-          <span class="query-item-time mx-2">${timestamp}</span>
-        </div>
-        <div class="query-item-url">${url}</div>
-        <div class="query-item-response">
-          <span id="${queryId}-response">Executing...</span>
-        </div>
-      </div>
-    `;
   }
   
   // Add to top of list
@@ -253,6 +318,11 @@ function resetQueryCounters() {
   prestoQueryCount = 0;
   unreadQueryCount = 0;
   
+  // Clear active state and query data
+  clearActiveQueryState();
+  queryDataStore.clear();
+  readQueries.clear();
+  
   // Clear the query list
   const queryList = document.getElementById('queryList');
   const noQueries = document.getElementById('noQueries');
@@ -267,6 +337,9 @@ function resetQueryCounters() {
       noQueries.style.display = 'block';
     }
   }
+  
+  // Hide details panel when clearing
+  hideQueryDetails();
   
   updateQueryStats();
   updateQueryBadge();
@@ -323,6 +396,166 @@ function initializeEnhancedFetch() {
         throw error;
       });
   };
+}
+
+/**
+ * Show the query details panel with information for a specific query
+ * @param {string} queryId - The ID of the query to show details for
+ */
+function showQueryDetails(queryId) {
+  const queryData = queryDataStore.get(queryId);
+  if (!queryData) {
+    console.warn('Query data not found for ID:', queryId);
+    return;
+  }
+  
+  // Mark this query as read
+  readQueries.add(queryId);
+  
+  // Find the query item that contains this specific query and update its class
+  const queryItems = document.querySelectorAll('.query-item');
+  queryItems.forEach(item => {
+    // Check if this item contains our target query
+    const containers = item.querySelectorAll('.query-item-container[onclick*="' + queryId + '"]');
+    if (containers.length > 0) {
+      // Remove 'new' class and add 'read' class
+      item.classList.remove('new');
+      item.classList.add('read');
+    }
+  });
+  
+  // Clear previous active state
+  clearActiveQueryState();
+  
+  // Set new active state
+  setActiveQueryState(queryId);
+  
+  const detailsPanel = document.getElementById('queryDetailsPanel');
+  const detailsContent = document.getElementById('queryDetailsContent');
+  const detailsTitle = document.getElementById('queryDetailsTitle');
+  const detailsSubtitle = document.getElementById('queryDetailsSubtitle');
+  
+  if (!detailsPanel || !detailsContent) {
+    console.warn('Query details panel elements not found.');
+    return;
+  }
+  
+  // Update header
+  if (detailsTitle) {
+    detailsTitle.innerHTML = `${queryData.description}`;
+  }
+  if (detailsSubtitle) {
+    detailsSubtitle.innerHTML = `<span class="query-type-badge ${queryData.queryType.toLowerCase()}">${queryData.queryType}</span> • ${queryData.timestamp} • ${queryData.executionTime}`;
+  }
+  
+  // Format parameters for display
+  let parametersHtml = 'None';
+  if (queryData.parameters && queryData.parameters.length > 0) {
+    parametersHtml = queryData.parameters.map(param => {
+      if (typeof param === 'object') {
+        return `<code>${JSON.stringify(param)}</code>`;
+      }
+      return `<code>${String(param)}</code>`;
+    }).join(', ');
+  }
+  
+  // Create details content HTML
+  detailsContent.innerHTML = `
+    <div class="query-details-section">
+      <h6 class="query-details-section-title">
+        <i class="bi bi-file-text me-2"></i>Query
+      </h6>
+      <div class="query-details-box">
+        <pre><code>${queryData.formatted_query_text}</code></pre>
+      </div>
+    </div>
+    
+    <div class="query-details-section">
+      <h6 class="query-details-section-title">
+        <i class="bi bi-gear me-2"></i>Parameters
+      </h6>
+      <div class="query-details-box">
+        <div class="query-parameters">${parametersHtml}</div>
+      </div>
+    </div>
+    
+    <div class="query-details-section">
+      <h6 class="query-details-section-title">
+        <i class="bi bi-table me-2"></i>Results
+      </h6>
+      <div class="query-details-row-info">
+        <span class="query-details-label">Rows returned:</span>
+        <span class="query-details-value">${queryData.rowsReturned.toLocaleString()}</span>
+      </div>
+    </div>
+    
+    <div class="query-details-section">
+      <h6 class="query-details-section-title">
+        <i class="bi bi-info-circle me-2"></i>Metadata
+      </h6>
+      <div class="query-details-metadata">
+        <div class="query-details-row-info">
+          <span class="query-details-label">Request URL:</span>
+          <span class="query-details-value"><code>${queryData.url}</code></span>
+        </div>
+        <div class="query-details-row-info">
+          <span class="query-details-label">Execution Time:</span>
+          <span class="query-details-value">${queryData.executionTime}</span>
+        </div>
+        <div class="query-details-row-info">
+          <span class="query-details-label">Query Type:</span>
+          <span class="query-details-value"><span class="query-type-badge ${queryData.queryType.toLowerCase()}">${queryData.queryType}</span></span>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Show the panel
+  detailsPanel.classList.add('open');
+}
+
+/**
+ * Hide the query details panel
+ */
+function hideQueryDetails() {
+  const detailsPanel = document.getElementById('queryDetailsPanel');
+  if (detailsPanel) {
+    detailsPanel.classList.remove('open');
+  }
+  
+  // Clear active state when hiding details
+  clearActiveQueryState();
+}
+
+/**
+ * Set the active query state
+ * @param {string} queryId - The ID of the query to mark as active
+ */
+function setActiveQueryState(queryId) {
+  activeQueryId = queryId;
+  
+  // Find the query item that contains this specific query
+  const queryItems = document.querySelectorAll('.query-item');
+  queryItems.forEach(item => {
+    // Check if this item contains our target query
+    const containers = item.querySelectorAll('.query-item-container[onclick*="' + queryId + '"]');
+    if (containers.length > 0) {
+      item.classList.add('active');
+    }
+  });
+}
+
+/**
+ * Clear the active query state from all queries
+ */
+function clearActiveQueryState() {
+  activeQueryId = null;
+  
+  // Remove active class from all query items
+  const queryItems = document.querySelectorAll('.query-item');
+  queryItems.forEach(item => {
+    item.classList.remove('active');
+  });
 }
 
 /**

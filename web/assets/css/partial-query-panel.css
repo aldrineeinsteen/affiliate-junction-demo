@@ -155,6 +155,25 @@
   border-color: #dc3545;
 }
 
+.query-item.active {
+  border-color: #0d6efd;
+  background: #f0f8ff;
+  box-shadow: 0 2px 8px rgba(13, 110, 253, 0.2);
+}
+
+.query-item.new .query-item-container {
+  border-left: 3px solid #0d6efd;
+  padding-left: 9px; /* Adjust padding to account for border */
+}
+
+.query-item.new {
+  border-color: #dee2e6 !important; /* Override status colors for new items */
+}
+
+.query-item.read {
+  border-color: #dee2e6;
+}
+
 .query-item-container {
   padding: 12px;
   border-bottom: 1px solid #f0f0f0;
@@ -294,5 +313,198 @@
   
   .query-panel-toggle i {
     font-size: 14px;
+  }
+}
+
+/* Query Details Panel Styles */
+.query-details-panel {
+  position: fixed;
+  top: 0;
+  right: -500px; /* Hidden by default, starts further right than query panel */
+  width: 500px;
+  height: 100vh;
+  background: #ffffff;
+  border-left: 1px solid #dee2e6;
+  box-shadow: -2px 0 10px rgba(0, 0, 0, 0.1);
+  z-index: 1049; /* Lower than query panel */
+  transition: right 0.3s ease-in-out;
+  display: flex;
+  flex-direction: column;
+}
+
+.query-details-panel.open {
+  right: 400px; /* Position next to open query panel */
+}
+
+/* When query panel is closed but details panel should be visible */
+.query-panel:not(.open) + .query-details-panel.open {
+  right: 0;
+}
+
+.query-details-panel-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+}
+
+.query-details-panel-header {
+  padding: 20px 20px 15px;
+  border-bottom: 1px solid #dee2e6;
+  background: #f1f8ff;
+}
+
+.query-details-panel-header h5 {
+  color: #495057;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.query-details-panel-header .btn-sm {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.query-details-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.query-details-section {
+  margin-bottom: 24px;
+}
+
+.query-details-section:last-child {
+  margin-bottom: 0;
+}
+
+.query-details-section-title {
+  color: #495057;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #e9ecef;
+  padding-bottom: 8px;
+}
+
+.query-details-section-title i {
+  color: #6c757d;
+}
+
+.query-details-box {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.query-details-box pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #212529;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.query-details-box code {
+  background: transparent;
+  color: #212529;
+  font-size: 12px;
+  padding: 0;
+}
+
+.query-parameters {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.query-parameters code {
+  background: #e9ecef;
+  color: #495057;
+  padding: 2px 4px;
+  border-radius: 3px;
+  margin: 0 2px;
+}
+
+.query-details-row-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.query-details-row-info:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.query-details-label {
+  font-weight: 600;
+  color: #495057;
+  font-size: 13px;
+}
+
+.query-details-value {
+  font-size: 13px;
+  color: #6c757d;
+  text-align: right;
+  word-break: break-all;
+  margin-left: 16px;
+}
+
+.query-details-metadata {
+  background: #ffffff;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+/* Make query items clickable */
+.query-item-container[onclick] {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.query-item-container[onclick]:hover {
+  background-color: #e3f2fd;
+}
+
+.query-item.active .query-item-container {
+  background-color: #e7f3ff;
+  border-left: 3px solid #0d6efd;
+  padding-left: 9px; /* Adjust padding to account for border */
+}
+
+/* Mobile responsiveness for query details panel */
+@media (max-width: 1200px) {
+  .query-details-panel {
+    width: 100vw;
+    right: -100vw;
+  }
+  
+  .query-details-panel.open {
+    right: 0;
+  }
+  
+  .query-panel:not(.open) + .query-details-panel.open {
+    right: 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .query-details-panel-body {
+    padding: 15px;
   }
 }
