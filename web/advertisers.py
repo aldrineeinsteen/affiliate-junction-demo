@@ -59,7 +59,7 @@ def get_advertiser_details(advertiser_id: str) -> Optional[Dict]:
         Dictionary with advertiser details or None if not found
     """
     try:
-        query = "SELECT advertiser_id, impressions, conversions, last_updated FROM advertisers WHERE advertiser_id = %s"
+        query = "SELECT advertiser_id, impressions, conversions, last_updated FROM advertisers WHERE advertiser_id = ?"
         
         result = hcd_operations.execute_query_with_retry(query, [advertiser_id])
         
@@ -89,7 +89,7 @@ def get_advertiser_dashboard_data(advertiser_id: str) -> Optional[Dict]:
         Dictionary with advertiser dashboard data or None if not found
     """
     try:
-        query = "SELECT advertiser_id, impressions, conversions, last_updated FROM advertisers WHERE advertiser_id = %s"
+        query = "SELECT advertiser_id, impressions, conversions, last_updated FROM advertisers WHERE advertiser_id = ?"
         
         result = hcd_operations.execute_query_with_retry(query, [advertiser_id])
         
