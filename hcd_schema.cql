@@ -30,44 +30,45 @@ AND default_time_to_live = 360;
 
 -- Create impressions by minute table for time-based impression tracking
 CREATE TABLE IF NOT EXISTS impressions_by_minute (
-    bucket_date TIMESTAMP,   -- floor(timestamp to UTC minute)
-    bucket SMALLINT,         -- 0..(N-1), hash bucket to fan out writes
-    ts TIMEUUID,             -- event time (timeuuid for ordering)
+    bucket_date TIMESTAMP,   
+    bucket SMALLINT,        
+    ts TIMEUUID,            
     publishers_id TEXT,
     advertisers_id TEXT,
     cookie_id TEXT,
-    impression_id UUID,      -- optional unique id for idempotency
+    impression_id UUID,     
     PRIMARY KEY ((bucket_date, bucket), ts, publishers_id, advertisers_id, cookie_id, impression_id)
 ) WITH CLUSTERING ORDER BY (ts ASC)
 AND default_time_to_live = 600;
 
 -- Create conversions by minute table for time-based conversion tracking
 CREATE TABLE IF NOT EXISTS conversions_by_minute (
-    bucket_date TIMESTAMP,   -- floor(timestamp to UTC minute)
-    bucket SMALLINT,         -- 0..(N-1), hash bucket to fan out writes
-    ts TIMEUUID,             -- event time (timeuuid for ordering)
+    bucket_date TIMESTAMP,  
+    bucket SMALLINT,        
+    ts TIMEUUID,             
     publishers_id TEXT,
     advertisers_id TEXT,
     cookie_id TEXT,
-    conversion_id UUID,      -- optional unique id for idempotency
+    conversion_id UUID,     
     PRIMARY KEY ((bucket_date, bucket), ts, publishers_id, advertisers_id, cookie_id, conversion_id)
 ) WITH CLUSTERING ORDER BY (ts ASC)
 AND default_time_to_live = 600;
 
--- Create publishers table with trailing 90-minute data using lists
+-- Create publishers table with trailing 90-minute data using JSON text fields
+-- Each JSON array contains objects with timestamp and count: [{"ts": 1234567890, "count": 10}, ...]
 CREATE TABLE IF NOT EXISTS publishers (
     publisher_id text PRIMARY KEY,
-    impressions map<bigint,int>,
-    conversions map<bigint,int>,
+    impressions text, 
+    conversions text, 
     last_updated timestamp
 ) WITH default_time_to_live = 21600;
 
-
--- Create advertisers table with trailing 90-minute data using lists  
+-- Create advertisers table with trailing 90-minute data using JSON text fields
+-- Each JSON array contains objects with timestamp and count: [{"ts": 1234567890, "count": 10}, ...]
 CREATE TABLE IF NOT EXISTS advertisers (
     advertiser_id TEXT,
-    impressions map<bigint, int>,    
-    conversions map<bigint, int>,    
+    impressions text,
+    conversions text,
     last_updated TIMESTAMP,
     PRIMARY KEY (advertiser_id)
-) WITH default_time_to_live = 21600; 
+) WITH default_time_to_live = 21600;
