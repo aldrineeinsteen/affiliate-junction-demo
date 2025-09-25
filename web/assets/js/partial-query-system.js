@@ -26,6 +26,7 @@ function initializeQueryPanel() {
   const panel = document.getElementById('queryPanel');
   const toggleBtn = document.getElementById('queryPanelToggle');
   const clearBtn = document.getElementById('clearQueriesBtn');
+  const modalOverlay = document.getElementById('queryModalOverlay');
   
   if (!panel || !toggleBtn) {
     console.warn('Query panel elements not found. Query panel initialization skipped.');
@@ -37,6 +38,15 @@ function initializeQueryPanel() {
     const isCurrentlyOpen = panel.classList.contains('open');
     
     panel.classList.toggle('open');
+    
+    // Show/hide modal overlay
+    if (modalOverlay) {
+      if (isCurrentlyOpen) {
+        hideModalOverlay();
+      } else {
+        showModalOverlay();
+      }
+    }
     
     // Update button tooltip and aria label
     if (isCurrentlyOpen) {
@@ -57,6 +67,13 @@ function initializeQueryPanel() {
       if (confirm('Are you sure you want to clear all query history?')) {
         resetQueryCounters();
       }
+    });
+  }
+  
+  // Close panel when clicking on modal overlay
+  if (modalOverlay) {
+    modalOverlay.addEventListener('click', function() {
+      closePanels();
     });
   }
   
@@ -99,12 +116,7 @@ function initializeKeyboardHandlers() {
       
       // Close query panel if it's open
       if (queryPanel && queryPanel.classList.contains('open')) {
-        const toggleBtn = document.getElementById('queryPanelToggle');
-        queryPanel.classList.remove('open');
-        if (toggleBtn) {
-          toggleBtn.setAttribute('title', 'Show query panel');
-          toggleBtn.setAttribute('aria-label', 'Show Query Panel');
-        }
+        closePanels();
         event.preventDefault();
         return;
       }
@@ -465,7 +477,7 @@ function showQueryDetails(queryId) {
       <h6 class="query-details-section-title">
         <i class="bi bi-file-text me-2"></i>Query
       </h6>
-      <div class="query-details-box">
+      <div class="query-details-box p-0">
         <pre><code class="language-sql">${queryData.formatted_query_text}</code></pre>
       </div>
     </div>
@@ -513,11 +525,34 @@ function showQueryDetails(queryId) {
   // Show the panel
   detailsPanel.classList.add('open');
   
+  // Show modal overlay if not already shown
+  const modalOverlay = document.getElementById('queryModalOverlay');
+  if (modalOverlay) {
+    showModalOverlay();
+  }
+  
   // Trigger Prism.js syntax highlighting if available
   if (typeof Prism !== 'undefined' && Prism.highlightAll) {
     // Use setTimeout to ensure DOM is updated before highlighting
     setTimeout(() => {
       Prism.highlightAll();
+      // Remove all backgrounds from Prism-generated elements in query details
+      const queryDetailsBox = detailsContent.querySelector('.query-details-box');
+      if (queryDetailsBox) {
+        // Remove background from all elements within the query box
+        const allElements = queryDetailsBox.querySelectorAll('*');
+        allElements.forEach(element => {
+          element.style.background = 'none';
+          element.style.backgroundColor = 'transparent';
+        });
+        // Also remove from pre and code specifically
+        const preElements = queryDetailsBox.querySelectorAll('pre');
+        const codeElements = queryDetailsBox.querySelectorAll('code');
+        [...preElements, ...codeElements].forEach(element => {
+          element.style.background = 'none';
+          element.style.backgroundColor = 'transparent';
+        });
+      }
     }, 0);
   }
 }
@@ -529,6 +564,14 @@ function hideQueryDetails() {
   const detailsPanel = document.getElementById('queryDetailsPanel');
   if (detailsPanel) {
     detailsPanel.classList.remove('open');
+  }
+  
+  // Hide modal overlay if both panels are closed
+  const queryPanel = document.getElementById('queryPanel');
+  const modalOverlay = document.getElementById('queryModalOverlay');
+  
+  if (modalOverlay && (!queryPanel || !queryPanel.classList.contains('open'))) {
+    hideModalOverlay();
   }
   
   // Clear active state when hiding details
@@ -564,6 +607,57 @@ function clearActiveQueryState() {
   queryItems.forEach(item => {
     item.classList.remove('active');
   });
+}
+
+/**
+ * Show the modal overlay
+ */
+function showModalOverlay() {
+  const modalOverlay = document.getElementById('queryModalOverlay');
+  if (modalOverlay) {
+    modalOverlay.classList.add('show');
+  }
+}
+
+/**
+ * Hide the modal overlay
+ */
+function hideModalOverlay() {
+  const modalOverlay = document.getElementById('queryModalOverlay');
+  if (modalOverlay) {
+    modalOverlay.classList.remove('show');
+  }
+}
+
+/**
+ * Close all query panels and hide modal overlay
+ */
+function closePanels() {
+  const queryPanel = document.getElementById('queryPanel');
+  const queryDetailsPanel = document.getElementById('queryDetailsPanel');
+  const toggleBtn = document.getElementById('queryPanelToggle');
+  
+  // Close query panel
+  if (queryPanel) {
+    queryPanel.classList.remove('open');
+  }
+  
+  // Close details panel
+  if (queryDetailsPanel) {
+    queryDetailsPanel.classList.remove('open');
+  }
+  
+  // Update toggle button
+  if (toggleBtn) {
+    toggleBtn.setAttribute('title', 'Show query panel');
+    toggleBtn.setAttribute('aria-label', 'Show Query Panel');
+  }
+  
+  // Hide modal overlay
+  hideModalOverlay();
+  
+  // Clear active state
+  clearActiveQueryState();
 }
 
 /**

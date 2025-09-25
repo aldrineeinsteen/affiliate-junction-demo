@@ -13,3 +13,13 @@
 
 
 
+* CQL table for each service
+ - service name
+ - service description
+ - last update timestamp
+ - stats (json dict) - lifetime stats, lifetime runtime, average per time period
+ - settings (json dict)
+
+
+
+

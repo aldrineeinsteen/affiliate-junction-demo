@@ -1,5 +1,27 @@
 /* Query Panel Partial Styles - Used by query_panel.html partial */
 
+/* Modal overlay for query panels */
+.query-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 1040; /* Below panels but above everything else */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+  cursor: pointer;
+}
+
+.query-modal-overlay.show {
+  opacity: 1;
+  visibility: visible;
+}
+
 .query-panel {
   position: fixed;
   top: 0;
