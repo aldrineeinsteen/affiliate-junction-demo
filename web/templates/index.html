@@ -4,9 +4,15 @@
   <meta charset="UTF-8">
   <title>FastAPI Demo</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="https://www.ibm.com/favicon.ico">
 
   <!-- Bootstrap via CDN -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- Bootstrap Icons via CDN -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
 
   <!-- Your custom styles -->
   <link rel="stylesheet" href="/assets/custom.css">
@@ -40,6 +46,9 @@
 
 <!-- Footer -->
 {% include 'partials/footer.html' %}
+
+<!-- Query Panel -->
+{% include 'partials/query_panel.html' %}
 
 <!-- Bootstrap JS (optional, for components) -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
@@ -87,7 +96,10 @@ function onAdvertiserChange() {
 }
 
 // Load advertisers when page loads
-document.addEventListener("DOMContentLoaded", loadAdvertisers);
+document.addEventListener("DOMContentLoaded", function() {
+  loadAdvertisers();
+  initializeQueryPanel();
+});
 
 document.getElementById("fetchBtn").addEventListener("click", async () => {
   const res = await fetch("/api");
@@ -95,6 +107,179 @@ document.getElementById("fetchBtn").addEventListener("click", async () => {
   document.getElementById("response").innerHTML =
     `<pre>${JSON.stringify(data, null, 2)}</pre>`;
 });
+
+// Query Panel Management
+function initializeQueryPanel() {
+  const panel = document.getElementById('queryPanel');
+  const toggleBtn = document.getElementById('queryPanelToggle');
+  
+  // Toggle panel on button click
+  toggleBtn.addEventListener('click', function() {
+    const isCurrentlyOpen = panel.classList.contains('open');
+    
+    panel.classList.toggle('open');
+    
+    // Update button tooltip and aria label
+    if (isCurrentlyOpen) {
+      toggleBtn.setAttribute('title', 'Show query panel');
+      toggleBtn.setAttribute('aria-label', 'Show Query Panel');
+    } else {
+      toggleBtn.setAttribute('title', 'Hide query panel');
+      toggleBtn.setAttribute('aria-label', 'Hide Query Panel');
+      
+      // Clear badge when panel is opened
+      clearQueryBadge();
+    }
+  });
+  
+  // Close panel when clicking outside (optional)
+  document.addEventListener('click', function(event) {
+    const isClickInsidePanel = panel.contains(event.target);
+    const isClickOnToggle = toggleBtn.contains(event.target);
+    
+    if (!isClickInsidePanel && !isClickOnToggle && panel.classList.contains('open')) {
+      // Uncomment the lines below if you want to close on outside click
+      // panel.classList.remove('open');
+      // toggleBtn.setAttribute('title', 'Show query panel');
+      // toggleBtn.setAttribute('aria-label', 'Show Query Panel');
+    }
+  });
+}
+
+// Query tracking functions
+let queryCounter = 0;
+let totalResponseTime = 0;
+
+function addQueryToPanel(method, url, status = 'pending') {
+  const queryList = document.getElementById('queryList');
+  const noQueries = document.getElementById('noQueries');
+  
+  // Hide "no queries" message
+  if (noQueries) {
+    noQueries.style.display = 'none';
+  }
+  
+  queryCounter++;
+  const queryId = `query-${Date.now()}-${queryCounter}`;
+  const timestamp = new Date().toLocaleTimeString();
+  
+  // Create query item
+  const queryItem = document.createElement('div');
+  queryItem.className = `query-item ${status}`;
+  queryItem.id = queryId;
+  queryItem.innerHTML = `
+    <div class="query-item-header">
+      <span class="query-item-method">${method}</span>
+      <span class="query-item-time">${timestamp}</span>
+      <span class="query-item-status ${status}">${status.toUpperCase()}</span>
+    </div>
+    <div class="query-item-url">${url}</div>
+    <div class="query-item-response">
+      <span id="${queryId}-response">Executing...</span>
+    </div>
+  `;
+  
+  // Add to top of list
+  queryList.insertBefore(queryItem, queryList.firstChild);
+  
+  // Update counters
+  updateQueryStats();
+  
+  // Increment badge count for new queries
+  incrementQueryBadge();
+  
+  // Return query ID for later updates
+  return queryId;
+}
+
+function updateQueryStatus(queryId, status, responseTime = null, details = null) {
+  const queryItem = document.getElementById(queryId);
+  if (!queryItem) return;
+  
+  // Update status class and text
+  queryItem.className = `query-item ${status}`;
+  const statusSpan = queryItem.querySelector('.query-item-status');
+  statusSpan.className = `query-item-status ${status}`;
+  statusSpan.textContent = status.toUpperCase();
+  
+  // Update response details
+  const responseSpan = document.getElementById(`${queryId}-response`);
+  if (responseSpan) {
+    let responseText = '';
+    if (responseTime !== null) {
+      responseText = `${responseTime}ms`;
+      totalResponseTime += responseTime;
+    }
+    if (details) {
+      responseText += ` • ${details}`;
+    }
+    if (status === 'error') {
+      responseText = details || 'Request failed';
+    }
+    responseSpan.textContent = responseText;
+  }
+  
+  updateQueryStats();
+}
+
+function updateQueryStats() {
+  document.getElementById('totalQueries').textContent = queryCounter;
+  
+  const avgTime = queryCounter > 0 ? Math.round(totalResponseTime / queryCounter) : 0;
+  document.getElementById('avgResponseTime').textContent = `${avgTime}ms`;
+}
+
+// Badge management functions
+let unreadQueryCount = 0;
+
+function updateQueryBadge() {
+  const badge = document.getElementById('queryBadge');
+  const panel = document.getElementById('queryPanel');
+  
+  if (unreadQueryCount > 0 && !panel.classList.contains('open')) {
+    badge.textContent = unreadQueryCount;
+    badge.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function incrementQueryBadge() {
+  const panel = document.getElementById('queryPanel');
+  // Only increment if panel is closed
+  if (!panel.classList.contains('open')) {
+    unreadQueryCount++;
+    updateQueryBadge();
+  }
+}
+
+function clearQueryBadge() {
+  unreadQueryCount = 0;
+  updateQueryBadge();
+}
+
+// Enhanced fetch wrapper to track queries
+const originalFetch = window.fetch;
+window.fetch = function(url, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
+  const queryId = addQueryToPanel(method, url);
+  const startTime = Date.now();
+  
+  return originalFetch(url, options)
+    .then(response => {
+      const responseTime = Date.now() - startTime;
+      const status = response.ok ? 'success' : 'error';
+      const details = response.ok ? `${response.status} OK` : `${response.status} ${response.statusText}`;
+      
+      updateQueryStatus(queryId, status, responseTime, details);
+      return response;
+    })
+    .catch(error => {
+      const responseTime = Date.now() - startTime;
+      updateQueryStatus(queryId, 'error', responseTime, error.message);
+      throw error;
+    });
+};
 </script>
 
 </body>
