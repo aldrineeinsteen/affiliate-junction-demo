@@ -2,14 +2,16 @@ import os
 import logging
 import prestodb
 from dotenv import load_dotenv
-from cassandra.cluster import Cluster, ExecutionProfile
-from cassandra.auth import PlainTextAuthProvider
-from cassandra.policies import DCAwareRoundRobinPolicy
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+
+# Import our custom modules
+from . import hcd_operations
+from . import advertisers
+from .cassandra_wrapper import cassandra_wrapper
 
 # Configure logging
 logging.basicConfig(
@@ -24,7 +26,6 @@ load_dotenv()
 app = FastAPI()
 
 # Global connections
-cassandra_session = None
 presto_connection = None
 
 # Serve static assets from web/assets
@@ -32,45 +33,6 @@ app.mount("/assets", StaticFiles(directory="web/assets"), name="assets")
 
 # Jinja2 templates in web/templates
 templates = Jinja2Templates(directory="web/templates")
-
-
-def connect_to_cassandra():
-    """Establish connection to Cassandra cluster - reusing from hcd_to_presto.py"""
-    global cassandra_session
-    try:
-        auth_provider = None
-        if os.getenv('HCD_USER') and os.getenv('HCD_PASSWD'):
-            auth_provider = PlainTextAuthProvider(
-                username=os.getenv('HCD_USER'),
-                password=os.getenv('HCD_PASSWD')
-            )
-                      
-        # Create execution profile with timeout settings
-        profile = ExecutionProfile(
-            load_balancing_policy=DCAwareRoundRobinPolicy(local_dc=os.getenv('HCD_DATACENTER')),
-            request_timeout=10
-        )
-        
-        cluster = Cluster(
-            [os.getenv('HCD_HOST', 'localhost')],
-            port=int(os.getenv('HCD_PORT', '9042')),
-            auth_provider=auth_provider,
-            protocol_version=5,
-            execution_profiles={'default': profile}
-        )
-        
-        cassandra_session = cluster.connect()
-        
-        # Set keyspace if specified
-        if os.getenv('HCD_KEYSPACE'):
-            cassandra_session.set_keyspace(os.getenv('HCD_KEYSPACE'))
-        
-        logger.info(f"Connected to Cassandra cluster at {os.getenv('HCD_HOST', 'localhost')}:{os.getenv('HCD_PORT', '9042')}")
-        return cassandra_session
-        
-    except Exception as e:
-        logger.error(f"Failed to connect to Cassandra: {e}")
-        raise
 
 
 def connect_to_presto():
@@ -104,7 +66,7 @@ def connect_to_presto():
 async def startup_event():
     """Initialize database connections on app startup"""
     try:
-        connect_to_cassandra()
+        hcd_operations.get_cassandra_session()  # This will initialize the connection
         connect_to_presto()
         logger.info("Database connections initialized successfully")
     except Exception as e:
@@ -116,9 +78,7 @@ async def startup_event():
 async def shutdown_event():
     """Clean up connections on app shutdown"""
     try:
-        if cassandra_session:
-            cassandra_session.shutdown()
-            logger.info("Cassandra connection closed")
+        hcd_operations.close_cassandra_connection()
         
         if presto_connection:
             presto_connection.close()
@@ -132,17 +92,142 @@ async def shutdown_event():
 @app.get("/api")
 def get_data():
     """API endpoint with database connection status"""
-    connection_status = {
-        "cassandra": "connected" if cassandra_session else "disconnected",
-        "presto": "connected" if presto_connection else "disconnected"
-    }
-    
-    return {
-        "message": "Hello from the API", 
-        "data": [1, 2, 3, 4, 5],
-        "database_connections": connection_status,
-        "environment_loaded": bool(os.getenv('HCD_HOST'))
-    }
+    with cassandra_wrapper.request_context():
+        cassandra_session = hcd_operations.get_cassandra_session()
+        connection_status = {
+            "cassandra": "connected" if cassandra_session else "disconnected",
+            "presto": "connected" if presto_connection else "disconnected"
+        }
+        
+        # Get query metrics for this request
+        query_metrics = cassandra_wrapper.get_request_queries()
+        
+        return {
+            "message": "Hello from the API", 
+            "data": [1, 2, 3, 4, 5],
+            "database_connections": connection_status,
+            "environment_loaded": bool(os.getenv('HCD_HOST')),
+            "query_metrics": query_metrics
+        }
+
+
+# --- Advertisers API endpoint ---
+@app.get("/api/advertisers")
+def get_advertisers_dropdown():
+    """API endpoint to get advertisers for dropdown"""
+    with cassandra_wrapper.request_context():
+        try:
+            advertisers_list = advertisers.get_random_advertisers(limit=10)
+            
+            # Get query metrics for this request
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return {
+                "advertisers": advertisers_list,
+                "query_metrics": query_metrics
+            }
+        except Exception as e:
+            logger.error(f"Error fetching advertisers: {e}")
+            
+            # Still get query metrics even if there was an error
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Failed to fetch advertisers", 
+                    "advertisers": [],
+                    "query_metrics": query_metrics
+                }
+            )
+
+
+# --- Advertiser Details API endpoint ---
+@app.get("/api/advertisers/{advertiser_id}")
+def get_advertiser_details_endpoint(advertiser_id: str):
+    """API endpoint to get detailed information for a specific advertiser"""
+    with cassandra_wrapper.request_context():
+        try:
+            advertiser_details = advertisers.get_advertiser_details(advertiser_id)
+            
+            # Get query metrics for this request
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            if advertiser_details:
+                return {
+                    "advertiser": advertiser_details,
+                    "query_metrics": query_metrics
+                }
+            else:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": f"Advertiser {advertiser_id} not found",
+                        "query_metrics": query_metrics
+                    }
+                )
+        except Exception as e:
+            logger.error(f"Error fetching advertiser details for {advertiser_id}: {e}")
+            
+            # Still get query metrics even if there was an error
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Failed to fetch advertiser details",
+                    "query_metrics": query_metrics
+                }
+            )
+
+
+# --- Advertiser Dashboard API endpoint ---
+@app.get("/api/advertisers/{advertiser_id}/dashboard")
+def get_advertiser_dashboard_endpoint(advertiser_id: str):
+    """API endpoint to get dashboard data for a specific advertiser with aggregated totals"""
+    with cassandra_wrapper.request_context():
+        try:
+            dashboard_data = advertisers.get_advertiser_dashboard_data(advertiser_id)
+            
+            # Get query metrics for this request
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            if dashboard_data:
+                return {
+                    "dashboard": dashboard_data,
+                    "query_metrics": query_metrics
+                }
+            else:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": f"Advertiser {advertiser_id} not found",
+                        "query_metrics": query_metrics
+                    }
+                )
+        except Exception as e:
+            logger.error(f"Error fetching advertiser dashboard for {advertiser_id}: {e}")
+            
+            # Still get query metrics even if there was an error
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Failed to fetch advertiser dashboard",
+                    "query_metrics": query_metrics
+                }
+            )
+
+
+# --- Advertiser Dashboard UI endpoint ---
+@app.get("/advertiser/{advertiser_id}", response_class=HTMLResponse)
+def advertiser_dashboard(request: Request, advertiser_id: str):
+    """Advertiser dashboard page"""
+    return templates.TemplateResponse("advertiser_dashboard.html", {
+        "request": request, 
+        "advertiser_id": advertiser_id
+    })
 
 
 # --- UI endpoint ---

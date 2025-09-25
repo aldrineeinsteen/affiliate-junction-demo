@@ -2,7 +2,15 @@
 <div class="mt-4 p-3 bg-white border rounded" _style="height:90vh;">
   <h5>Advertiser</h5>
   <nav class="nav flex-column">
-    <!-- Navigation items will be added here -->
+    <!-- Advertisers dropdown -->
+    <div class="mb-3">
+      <label for="advertisersSelect" class="form-label">Select Advertiser:</label>
+      <select class="form-select" id="advertisersSelect" onchange="onAdvertiserChange()">
+        <option value="">Loading advertisers...</option>
+      </select>
+    </div>
+    
+    <!-- Navigation items -->
     <a class="nav-link" href="#">Home</a>
     <a class="nav-link" href="#">Dashboard</a>
     <a class="nav-link" href="#">Settings</a>

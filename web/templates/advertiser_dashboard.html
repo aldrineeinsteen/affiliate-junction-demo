@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Advertiser Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- Bootstrap via CDN -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- Your custom styles -->
+  <link rel="stylesheet" href="/assets/custom.css">
+</head>
+<body class="bg-light">
+
+<!-- Header -->
+{% include 'partials/header.html' %}
+
+<div class="container-fluid">
+  <div class="row">
+    <!-- Sidebar Navigation (fixed, full height) -->
+    <div class="col-md-3 position-fixed overflow-auto" style="top: 0; left: 0; height: 100vh; z-index: 100;">
+      {% include 'partials/sidebar.html' %}
+    </div>
+    
+    <!-- Main Content Area (9 columns with left offset) -->
+    <div class="col-md-9 offset-md-3">
+      <div class="p-3 py-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+          <h1>📊 Advertiser Dashboard</h1>
+          <a href="/" class="btn btn-outline-secondary">← Back to Home</a>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading" class="text-center my-5">
+          <div class="spinner-border" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <p class="mt-2">Loading advertiser data...</p>
+        </div>
+
+        <!-- Error State -->
+        <div id="error" class="alert alert-danger d-none" role="alert">
+          <h4 class="alert-heading">Error</h4>
+          <p id="error-message">Failed to load advertiser data.</p>
+        </div>
+
+        <!-- Dashboard Content -->
+        <div id="dashboard" class="d-none">
+          <!-- Advertiser Info -->
+          <div class="row mb-4">
+            <div class="col-12">
+              <div class="card">
+                <div class="card-body">
+                  <h5 class="card-title" id="advertiser-name">Advertiser Name</h5>
+                  <p class="card-text">
+                    <span class="badge bg-primary">ID: <span id="advertiser-id">{{ advertiser_id }}</span></span>
+                  </p>
+                  <p class="text-muted small">
+                    <i class="bi bi-clock"></i> Last updated: <span id="last-updated">-</span>
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Metrics Cards -->
+          <div class="row">
+            <div class="col-md-6 mb-4">
+              <div class="card border-primary">
+                <div class="card-body">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                      <h5 class="card-title text-primary">Total Impressions</h5>
+                      <h2 class="display-4" id="total-impressions">0</h2>
+                      <p class="text-muted small">Previous 90 minutes</p>
+                    </div>
+                    <div class="text-primary">
+                      <i class="bi bi-eye" style="font-size: 3rem;"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-md-6 mb-4">
+              <div class="card border-success">
+                <div class="card-body">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                      <h5 class="card-title text-success">Total Conversions</h5>
+                      <h2 class="display-4" id="total-conversions">0</h2>
+                      <p class="text-muted small">Previous 90 minutes</p>
+                    </div>
+                    <div class="text-success">
+                      <i class="bi bi-check-circle" style="font-size: 3rem;"></i>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Additional Info -->
+          <div class="row">
+            <div class="col-12">
+              <div class="card">
+                <div class="card-body">
+                  <h5 class="card-title">Performance Summary</h5>
+                  <div class="row">
+                    <div class="col-md-4">
+                      <div class="text-center p-3">
+                        <h6 class="text-muted">Conversion Rate</h6>
+                        <h4 id="conversion-rate">0%</h4>
+                      </div>
+                    </div>
+                    <div class="col-md-4">
+                      <div class="text-center p-3">
+                        <h6 class="text-muted">Data Time Window</h6>
+                        <h4>90 Minutes</h4>
+                      </div>
+                    </div>
+                    <div class="col-md-4">
+                      <div class="text-center p-3">
+                        <h6 class="text-muted">Status</h6>
+                        <span class="badge bg-success" id="status-badge">Active</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Footer -->
+{% include 'partials/footer.html' %}
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+// Load advertisers dropdown on page load
+async function loadAdvertisers() {
+  try {
+    const response = await fetch("/api/advertisers");
+    const data = await response.json();
+    
+    const select = document.getElementById("advertisersSelect");
+    
+    if (data.advertisers && data.advertisers.length > 0) {
+      // Clear loading message
+      select.innerHTML = '<option value="">Select an advertiser...</option>';
+      
+      // Add advertisers to dropdown
+      data.advertisers.forEach(advertiser => {
+        const option = document.createElement("option");
+        option.value = advertiser.advertiser_id;
+        option.textContent = advertiser.name;
+        
+        // Select current advertiser if it matches
+        if (advertiser.advertiser_id === "{{ advertiser_id }}") {
+          option.selected = true;
+        }
+        
+        select.appendChild(option);
+      });
+    } else {
+      select.innerHTML = '<option value="">No advertisers available</option>';
+    }
+  } catch (error) {
+    console.error("Error loading advertisers:", error);
+    document.getElementById("advertisersSelect").innerHTML = 
+      '<option value="">Error loading advertisers</option>';
+  }
+}
+
+// Handle advertiser selection change
+function onAdvertiserChange() {
+  const select = document.getElementById("advertisersSelect");
+  const selectedAdvertiser = select.value;
+  
+  if (selectedAdvertiser) {
+    console.log("Selected advertiser:", selectedAdvertiser);
+    // Navigate to the selected advertiser's dashboard
+    window.location.href = `/advertiser/${selectedAdvertiser}`;
+  }
+}
+
+// Load advertiser dashboard data
+async function loadDashboardData() {
+  const advertiserId = "{{ advertiser_id }}";
+  
+  try {
+    const response = await fetch(`/api/advertisers/${advertiserId}/dashboard`);
+    const data = await response.json();
+    
+    if (response.ok && data.dashboard) {
+      const dashboard = data.dashboard;
+      
+      // Update dashboard content
+      document.getElementById("advertiser-name").textContent = dashboard.name;
+      document.getElementById("advertiser-id").textContent = dashboard.advertiser_id;
+      document.getElementById("total-impressions").textContent = dashboard.total_impressions.toLocaleString();
+      document.getElementById("total-conversions").textContent = dashboard.total_conversions.toLocaleString();
+      
+      // Calculate conversion rate
+      const conversionRate = dashboard.total_impressions > 0 
+        ? ((dashboard.total_conversions / dashboard.total_impressions) * 100).toFixed(2)
+        : "0.00";
+      document.getElementById("conversion-rate").textContent = `${conversionRate}%`;
+      
+      // Format last updated time
+      if (dashboard.last_updated) {
+        const lastUpdated = new Date(dashboard.last_updated).toLocaleString();
+        document.getElementById("last-updated").textContent = lastUpdated;
+      }
+      
+      // Show dashboard content
+      document.getElementById("loading").style.display = "none";
+      document.getElementById("dashboard").classList.remove("d-none");
+      
+    } else {
+      throw new Error(data.error || "Failed to load dashboard data");
+    }
+    
+  } catch (error) {
+    console.error("Error loading dashboard data:", error);
+    
+    // Show error state
+    document.getElementById("loading").style.display = "none";
+    document.getElementById("error").classList.remove("d-none");
+    document.getElementById("error-message").textContent = error.message || "Failed to load advertiser data.";
+  }
+}
+
+// Initialize page
+document.addEventListener("DOMContentLoaded", function() {
+  loadAdvertisers();
+  loadDashboardData();
+});
+</script>
+
+</body>
+</html>
