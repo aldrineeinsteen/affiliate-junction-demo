@@ -1,0 +1,45 @@
+<!-- Query Details Side Panel -->
+<div id="queryPanel" class="query-panel">
+  <!-- Toggle Button -->
+  <button id="queryPanelToggle" class="query-panel-toggle" type="button" aria-label="Show Query Panel" title="Show query panel">
+    <i class="bi bi-chevron-left"></i>
+  </button>
+  
+  <!-- Panel Content -->
+  <div class="query-panel-content">
+    <!-- Header -->
+    <div class="query-panel-header">
+      <h5 class="mb-0">
+        <i class="bi bi-code-slash me-2"></i>
+        Query Monitor
+      </h5>
+      <small class="text-muted">Real-time query tracking</small>
+    </div>
+    
+    <!-- Query List -->
+    <div class="query-panel-body">
+      <div id="queryList" class="query-list">
+        <!-- Default message when no queries -->
+        <div id="noQueries" class="no-queries text-center text-muted py-4">
+          <i class="bi bi-database" style="font-size: 2rem; opacity: 0.5;"></i>
+          <p class="mb-0 mt-2">No queries executed yet</p>
+          <small>Queries will appear here as they run</small>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Footer with stats -->
+    <div class="query-panel-footer">
+      <div class="row text-center">
+        <div class="col-6">
+          <small class="text-muted">Total Queries</small>
+          <div id="totalQueries" class="fw-bold">0</div>
+        </div>
+        <div class="col-6">
+          <small class="text-muted">Avg Response</small>
+          <div id="avgResponseTime" class="fw-bold">0ms</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -25,7 +25,7 @@ def get_random_advertisers(limit: int = 10) -> List[Dict[str, str]]:
         # Note: Cassandra doesn't have true random sampling, but we can limit results
         query = "SELECT advertiser_id FROM advertisers LIMIT ?"
         
-        result = hcd_operations.execute_query_with_retry(query, [limit * 3])  # Get more than needed to allow for filtering
+        result = hcd_operations.execute_query_with_retry(query, [limit * 3], query_description="Fetch random advertisers for dropdown")  # Get more than needed to allow for filtering
         
         advertisers = []
         seen_ids = set()
@@ -61,7 +61,7 @@ def get_advertiser_details(advertiser_id: str) -> Optional[Dict]:
     try:
         query = "SELECT advertiser_id, impressions, conversions, last_updated FROM advertisers WHERE advertiser_id = ?"
         
-        result = hcd_operations.execute_query_with_retry(query, [advertiser_id])
+        result = hcd_operations.execute_query_with_retry(query, [advertiser_id], query_description="Get advertiser details by ID")
         
         for row in result:
             return {
@@ -91,7 +91,7 @@ def get_advertiser_dashboard_data(advertiser_id: str) -> Optional[Dict]:
     try:
         query = "SELECT advertiser_id, impressions, conversions, last_updated FROM advertisers WHERE advertiser_id = ?"
         
-        result = hcd_operations.execute_query_with_retry(query, [advertiser_id])
+        result = hcd_operations.execute_query_with_retry(query, [advertiser_id], query_description="Get advertiser dashboard data")
         
         for row in result:
             # Parse JSON data and calculate totals
@@ -131,7 +131,7 @@ def get_advertiser_chart_data(advertiser_id: str) -> Optional[Dict]:
     try:
         query = "SELECT advertiser_id, impressions, conversions FROM advertisers WHERE advertiser_id = ?"
         
-        result = hcd_operations.execute_query_with_retry(query, [advertiser_id])
+        result = hcd_operations.execute_query_with_retry(query, [advertiser_id], query_description="Get advertiser chart data")
         
         for row in result:
             impressions_data = _parse_time_series_data(row.impressions)
@@ -273,7 +273,7 @@ def get_all_advertisers() -> List[Dict[str, str]]:
     try:
         query = "SELECT advertiser_id FROM advertisers"
         
-        result = hcd_operations.execute_query_with_retry(query)
+        result = hcd_operations.execute_query_with_retry(query, query_description="Get all advertisers")
         
         advertisers = []
         for row in result:

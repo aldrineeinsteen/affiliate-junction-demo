@@ -24,6 +24,8 @@ class QueryMetrics:
     """Data class to store query execution metrics"""
     query_id: str
     query_text: str
+    query_description: Optional[str]
+    query_type: str
     parameters: Optional[List[Any]]
     start_time: datetime
     end_time: Optional[datetime]
@@ -39,6 +41,8 @@ class QueryMetrics:
         return {
             "query_id": self.query_id,
             "query_text": self.query_text,
+            "query_description": self.query_description,
+            "query_type": self.query_type,
             "parameters": self.parameters,
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "end_time": self.end_time.isoformat() if self.end_time else None,
@@ -135,12 +139,14 @@ class CassandraQueryWrapper:
         return []
     
     def execute_query(self, query: str, parameters: Optional[List[Any]] = None, 
-                     max_retries: int = 3) -> Any:
+                     max_retries: int = 3, query_description: Optional[str] = None) -> Any:
         """Execute a CQL query and capture metrics"""
         query_id = self._generate_query_id()
         metrics = QueryMetrics(
             query_id=query_id,
             query_text=query,
+            query_description=query_description,
+            query_type="Cassandra",
             parameters=parameters,
             start_time=datetime.now(timezone.utc),
             end_time=None,
@@ -215,15 +221,17 @@ class CassandraQueryWrapper:
         
         return result
     
-    def execute_query_simple(self, query: str, parameters: Optional[List[Any]] = None) -> Any:
+    def execute_query_simple(self, query: str, parameters: Optional[List[Any]] = None, 
+                            query_description: Optional[str] = None) -> Any:
         """Execute a query without retry logic (for backward compatibility)"""
-        return self.execute_query(query, parameters, max_retries=1)
+        return self.execute_query(query, parameters, max_retries=1, query_description=query_description)
     
     def prepare_statement(self, query: str):
         """Prepare a statement for reuse"""
         return self.session.prepare(query)
     
-    def execute_prepared(self, prepared_statement, parameters: List[Any]) -> Any:
+    def execute_prepared(self, prepared_statement, parameters: List[Any], 
+                        query_description: Optional[str] = None) -> Any:
         """Execute a prepared statement and capture metrics"""
         query_id = self._generate_query_id()
         
@@ -233,6 +241,8 @@ class CassandraQueryWrapper:
         metrics = QueryMetrics(
             query_id=query_id,
             query_text=query_text,
+            query_description=query_description,
+            query_type="Cassandra",
             parameters=parameters,
             start_time=datetime.now(timezone.utc),
             end_time=None,
@@ -312,11 +322,12 @@ def close_cassandra_connection():
     cassandra_wrapper.close_connection()
 
 
-def execute_query(query: str, parameters: Optional[List[Any]] = None):
+def execute_query(query: str, parameters: Optional[List[Any]] = None, query_description: Optional[str] = None):
     """Execute a CQL query and return results (backward compatibility)"""
-    return cassandra_wrapper.execute_query_simple(query, parameters)
+    return cassandra_wrapper.execute_query_simple(query, parameters, query_description)
 
 
-def execute_query_with_retry(query: str, parameters: Optional[List[Any]] = None, max_retries: int = 3):
+def execute_query_with_retry(query: str, parameters: Optional[List[Any]] = None, max_retries: int = 3, 
+                           query_description: Optional[str] = None):
     """Execute a query with connection retry logic (backward compatibility)"""
-    return cassandra_wrapper.execute_query(query, parameters, max_retries)
+    return cassandra_wrapper.execute_query(query, parameters, max_retries, query_description)
