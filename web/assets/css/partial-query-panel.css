@@ -1,51 +1,5 @@
-/* Example: tweak Bootstrap a little */
-body {
-  font-family: system-ui, sans-serif;
-}
+/* Query Panel Partial Styles - Used by query_panel.html partial */
 
-/* Chart styling */
-#chart-container {
-  position: relative;
-  height: 400px;
-  margin-top: 20px;
-}
-
-#timeSeriesChart {
-  max-height: 400px;
-}
-
-/* Chart loading and error states */
-#chart-loading {
-  min-height: 200px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-}
-
-#chart-error {
-  margin-top: 20px;
-}
-
-/* Enhanced card styling for charts */
-.card .card-body h5.card-title {
-  margin-bottom: 1rem;
-  color: #495057;
-  font-weight: 600;
-}
-
-/* Responsive chart adjustments */
-@media (max-width: 768px) {
-  #chart-container {
-    height: 300px;
-  }
-  
-  #timeSeriesChart {
-    max-height: 300px;
-  }
-}
-
-/* Query Panel Styles */
 .query-panel {
   position: fixed;
   top: 0;
@@ -313,7 +267,7 @@ body {
   color: #495057;
 }
 
-/* Mobile responsiveness */
+/* Mobile responsiveness for query panel */
 @media (max-width: 768px) {
   .query-panel {
     width: 100vw;

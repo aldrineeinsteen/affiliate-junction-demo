@@ -75,6 +75,11 @@ python script_name.py
 4. **Schema execution**: Both `.cql` and `.sql` files are executed during service startup
 
 
+### Web Specific Rules - Javascript, CSS, HTML
+1. Use an external css file.  `css/common.css` for elements that will be shared across pages, and `css/$pagename.css` for page specific styles.
+2. Externalize all Javascript to `js/$pagename.js` or `js/$partialname.js` files.  No inline javascript.
+
+
 ### Integration Points
 - **Presto SSL**: All connections require `/certs/presto.crt` certificate validation
 - **Spark integration**: ETL uses PySpark for DataFrame operations before Presto writes

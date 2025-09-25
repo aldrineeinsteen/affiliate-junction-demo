@@ -1,0 +1,13 @@
+/* Common styles shared across all pages - not tied to specific partials */
+
+/* Global body styling */
+body {
+  font-family: system-ui, sans-serif;
+}
+
+/* Enhanced card styling for components used across multiple pages */
+.card .card-body h5.card-title {
+  margin-bottom: 1rem;
+  color: #495057;
+  font-weight: 600;
+}
