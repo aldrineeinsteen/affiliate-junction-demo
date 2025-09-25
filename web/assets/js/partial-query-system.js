@@ -466,7 +466,7 @@ function showQueryDetails(queryId) {
         <i class="bi bi-file-text me-2"></i>Query
       </h6>
       <div class="query-details-box">
-        <pre><code>${queryData.formatted_query_text}</code></pre>
+        <pre><code class="language-sql">${queryData.formatted_query_text}</code></pre>
       </div>
     </div>
     
@@ -512,6 +512,14 @@ function showQueryDetails(queryId) {
   
   // Show the panel
   detailsPanel.classList.add('open');
+  
+  // Trigger Prism.js syntax highlighting if available
+  if (typeof Prism !== 'undefined' && Prism.highlightAll) {
+    // Use setTimeout to ensure DOM is updated before highlighting
+    setTimeout(() => {
+      Prism.highlightAll();
+    }, 0);
+  }
 }
 
 /**

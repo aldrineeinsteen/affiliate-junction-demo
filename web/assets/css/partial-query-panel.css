@@ -320,8 +320,8 @@
 .query-details-panel {
   position: fixed;
   top: 0;
-  right: -500px; /* Hidden by default, starts further right than query panel */
-  width: 500px;
+  right: -700px; /* Hidden by default, starts further right than query panel */
+  width: 700px;
   height: 100vh;
   background: #ffffff;
   border-left: 1px solid #dee2e6;
