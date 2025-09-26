@@ -13,16 +13,12 @@
 
 
 
-* CQL table for each service
- - service name
- - service description
- - last update timestamp
- - stats (json dict) - lifetime stats, lifetime runtime, average per time period
- - settings (json dict)
 
 * stats:
  - timeseries all of the metrics - we will graph these.  retain 90 datapoints.  store as (unixtime,value) tuples
 
+
+* Remove html from js - keep in their own partials or as display:none in the main page
 
 
 

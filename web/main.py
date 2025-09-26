@@ -269,6 +269,66 @@ def advertiser_dashboard(request: Request, advertiser_id: str):
     })
 
 
+# --- Services UI endpoint ---
+@app.get("/services", response_class=HTMLResponse)
+def services_dashboard(request: Request):
+    """Service health dashboard page"""
+    with cassandra_wrapper.request_context():
+        try:
+            # Query the services table
+            cassandra_session = hcd_operations.get_cassandra_session()
+            query = "SELECT name, description, last_updated, stats, settings FROM affiliate_junction.services ORDER BY name ASC"
+            result = cassandra_session.execute(query)
+            
+            services = []
+            for row in result:
+                # Parse the stats JSON if it exists
+                parsed_stats = None
+                if row.stats:
+                    try:
+                        import json
+                        parsed_stats = json.loads(row.stats)
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.warning(f"Failed to parse stats JSON for service {row.name}: {e}")
+                        parsed_stats = None
+                
+                services.append({
+                    'name': row.name,
+                    'description': row.description,
+                    'last_updated': row.last_updated,
+                    'stats': row.stats,
+                    'settings': row.settings,
+                    'parsed_stats': parsed_stats
+                })
+            
+            # Create JSON representation for JavaScript
+            import json
+            services_json = json.dumps(services, default=str)
+            
+            # Get query metrics for this request
+            query_metrics = cassandra_wrapper.get_request_queries()
+            logger.info(f"Services query metrics: {query_metrics}")
+            
+            return templates.TemplateResponse("services.html", {
+                "request": request,
+                "services": services,
+                "services_json": services_json
+            })
+            
+        except Exception as e:
+            logger.error(f"Error fetching services data: {e}")
+            
+            # Still get query metrics even if there was an error
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return templates.TemplateResponse("services.html", {
+                "request": request,
+                "services": [],
+                "services_json": "[]",
+                "error": f"Failed to fetch services data: {str(e)}"
+            })
+
+
 # --- UI endpoint ---
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):

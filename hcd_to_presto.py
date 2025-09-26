@@ -6,6 +6,7 @@ import time
 import logging
 import requests
 import prestodb
+import json
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from cassandra.cluster import Cluster, ExecutionProfile
@@ -30,6 +31,18 @@ class AffiliateJunctionETL:
         self.spark = None
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
         self.load_environment()
+        
+        # Initialize stats tracking with timeseries data structure
+        self.stats_timeseries = {
+            'impressions_processed': [],
+            'conversions_processed': [],
+            'impressions_aggregated': [],
+            'impressions_batches': [],
+            'conversions_batches': [],
+            'execution_time_seconds': [],
+            'impressions_rollup_time': [],
+            'conversions_identification_time': []
+        }
         
     def load_environment(self):
         """Load environment variables from .env file"""
@@ -76,6 +89,51 @@ class AffiliateJunctionETL:
         except Exception as e:
             logger.error(f"Failed to connect to Cassandra: {e}")
             sys.exit(1)
+    
+    def poll_services_table(self):
+        """Poll the services table to check for configuration updates"""
+        try:
+            # Query for the hcd_to_presto service record
+            query = f"SELECT name, description, last_updated, settings FROM {os.getenv('HCD_KEYSPACE')}.services WHERE name = 'hcd_to_presto'"
+            result = self.cassandra_session.execute(query)
+            
+            service_record = result.one()
+            
+            if service_record:
+                # Service record exists
+                logger.debug("Found existing hcd_to_presto service record")
+            else:
+                # No service record exists, insert a new one
+                logger.info("No hcd_to_presto service record found, inserting new record")
+                self.insert_service_record()
+                
+        except Exception as e:
+            logger.error(f"Failed to poll services table: {e}")
+            # Continue with current settings if polling fails
+    
+    def insert_service_record(self):
+        """Insert a new service record with empty settings"""
+        try:
+            # Empty settings dict as specified
+            settings_json = json.dumps({})
+            
+            insert_query = f"""
+                INSERT INTO {os.getenv('HCD_KEYSPACE')}.services (name, description, last_updated, settings, stats)
+                VALUES (%s, %s, %s, %s, %s)
+            """
+            
+            self.cassandra_session.execute(insert_query, [
+                'hcd_to_presto',
+                'ETL service for transferring and aggregating data from Cassandra to Presto/Iceberg',
+                datetime.now(timezone.utc),
+                settings_json,
+                '{}'  # Empty stats JSON object
+            ])
+            
+            logger.info("Successfully inserted new hcd_to_presto service record")
+            
+        except Exception as e:
+            logger.error(f"Failed to insert service record: {e}")
     
     def connect_to_presto(self):
         """Establish connection to Presto"""
@@ -176,6 +234,7 @@ class AffiliateJunctionETL:
     def rollup_impressions(self):
         """Rollup impressions from Cassandra to Presto"""
         logger.info("Starting impressions rollup process...")
+        rollup_start_time = time.time()
         
         # Get current minute timestamp for processing
         # Calculate the previous minute (rounded down to the last full minute)
@@ -199,9 +258,12 @@ class AffiliateJunctionETL:
                         'cookie_id': row.cookie_id,
                     })
             
+            impressions_processed = len(all_impressions)
+            
             if not all_impressions:
                 logger.info(f"No impressions found for minute: {previous_minute}")
-                return
+                rollup_time = time.time() - rollup_start_time
+                return impressions_processed, 0, 0, rollup_time
             
             logger.info(f"Found {len(all_impressions)} raw impression records for minute: {previous_minute}")
             
@@ -214,8 +276,10 @@ class AffiliateJunctionETL:
                 .agg(count("*").alias("impressions")) \
                 .withColumnRenamed("bucket_date", "timestamp")
             
-            logger.info(f"Aggregated to {final_df.count()} unique publisher-advertiser-cookie combinations")
+            impressions_aggregated = final_df.count()
+            logger.info(f"Aggregated to {impressions_aggregated} unique publisher-advertiser-cookie combinations")
             
+            impressions_batches = 0
             # Write aggregated data to Presto impression_tracking table
             if final_df.count() > 0:
                 # Convert Spark DataFrame to list of tuples for Presto insertion
@@ -235,6 +299,7 @@ class AffiliateJunctionETL:
                     batch = rows_to_insert[i:i + batch_size]
                     batch_num = (i // batch_size) + 1
                     total_batches = (len(rows_to_insert) + batch_size - 1) // batch_size
+                    impressions_batches = total_batches
 
                     logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} records)")
                     
@@ -260,11 +325,15 @@ class AffiliateJunctionETL:
             logger.error(f"Error during impressions rollup: {e}")
             raise
         
+        rollup_time = time.time() - rollup_start_time
         logger.info(f"Impressions rollup completed for minute: {previous_minute}")
+        
+        return impressions_processed, impressions_aggregated, impressions_batches, rollup_time
     
     def identify_conversions(self):
         """Identify conversions by reading from Cassandra and writing to Presto"""
         logger.info("Starting conversions identification process...")
+        conversions_start_time = time.time()
         
         # Get current minute timestamp for processing
         previous_minute = (datetime.now(timezone.utc).replace(second=0, microsecond=0) - timedelta(minutes=1))
@@ -289,9 +358,12 @@ class AffiliateJunctionETL:
                         'conversion_id': row.conversion_id
                     })
             
+            conversions_processed = len(all_conversions)
+            
             if not all_conversions:
                 logger.info(f"No conversions found for minute: {previous_minute}")
-                return
+                conversions_time = time.time() - conversions_start_time
+                return conversions_processed, 0, conversions_time
             
             logger.info(f"Found {len(all_conversions)} raw conversion records for minute: {previous_minute}")
             
@@ -299,12 +371,14 @@ class AffiliateJunctionETL:
             # Each conversion is a distinct event, so no aggregation needed
             cursor = self.presto_connection.cursor()
             
+            conversions_batches = 0
             # Process in batches of 10,000 records for better performance
             batch_size = 10000
             for i in range(0, len(all_conversions), batch_size):
                 batch = all_conversions[i:i + batch_size]
                 batch_num = (i // batch_size) + 1
                 total_batches = (len(all_conversions) + batch_size - 1) // batch_size
+                conversions_batches = total_batches
 
                 logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} records)")
                 
@@ -331,7 +405,74 @@ class AffiliateJunctionETL:
             logger.error(f"Error during conversions identification: {e}")
             raise
         
+        conversions_time = time.time() - conversions_start_time
         logger.info(f"Conversions identification completed for minute: {previous_minute}")
+        
+        return conversions_processed, conversions_batches, conversions_time
+    
+    def collect_iteration_stats(self, impressions_processed, conversions_processed, impressions_aggregated, impressions_batches, conversions_batches, execution_time, impressions_rollup_time, conversions_identification_time):
+        """Collect stats from current iteration"""
+        try:
+            current_timestamp = int(time.time())
+            
+            # Collect all stats as (timestamp, value) tuples
+            stats = {
+                'impressions_processed': (current_timestamp, impressions_processed),
+                'conversions_processed': (current_timestamp, conversions_processed),
+                'impressions_aggregated': (current_timestamp, impressions_aggregated),
+                'impressions_batches': (current_timestamp, impressions_batches),
+                'conversions_batches': (current_timestamp, conversions_batches),
+                'execution_time_seconds': (current_timestamp, round(execution_time, 2)),
+                'impressions_rollup_time': (current_timestamp, round(impressions_rollup_time, 2)),
+                'conversions_identification_time': (current_timestamp, round(conversions_identification_time, 2))
+            }
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Failed to collect iteration stats: {e}")
+            return {}
+    
+    def update_timeseries_stats(self, iteration_stats):
+        """Update timeseries data with new stats, maintaining 90 datapoints"""
+        try:
+            for metric_name, (timestamp, value) in iteration_stats.items():
+                if metric_name in self.stats_timeseries:
+                    # Add new datapoint
+                    self.stats_timeseries[metric_name].append([timestamp, value])
+                    
+                    # Maintain only the most recent 90 datapoints
+                    if len(self.stats_timeseries[metric_name]) > 90:
+                        self.stats_timeseries[metric_name] = self.stats_timeseries[metric_name][-90:]
+            
+            logger.debug(f"Updated timeseries stats with {len(iteration_stats)} metrics")
+            
+        except Exception as e:
+            logger.error(f"Failed to update timeseries stats: {e}")
+    
+    def update_service_stats(self):
+        """Update the services table with current stats"""
+        try:
+            # Serialize stats as JSON
+            stats_json = json.dumps(self.stats_timeseries)
+            
+            # Update the service record with new stats
+            update_query = f"""
+                UPDATE {os.getenv('HCD_KEYSPACE')}.services 
+                SET stats = %s, last_updated = %s
+                WHERE name = %s
+            """
+            
+            self.cassandra_session.execute(update_query, [
+                stats_json,
+                datetime.now(timezone.utc),
+                'hcd_to_presto'
+            ])
+            
+            logger.debug("Successfully updated service stats")
+            
+        except Exception as e:
+            logger.error(f"Failed to update service stats: {e}")
     
     def cleanup(self):
         """Clean up connections"""
@@ -371,13 +512,29 @@ class AffiliateJunctionETL:
                     # Record start time for this iteration
                     iteration_start = time.time()
                     
+                    # Poll services table for configuration updates
+                    self.poll_services_table()
+                    
                     # Task 1: Rollup impressions
-                    self.rollup_impressions()
+                    impressions_processed, impressions_aggregated, impressions_batches, impressions_rollup_time = self.rollup_impressions()
                     
                     # Task 2: Identify conversions
-                    self.identify_conversions()
+                    conversions_processed, conversions_batches, conversions_identification_time = self.identify_conversions()
                     
                     execution_time = time.time() - iteration_start
+                    
+                    # Collect stats from this iteration
+                    iteration_stats = self.collect_iteration_stats(
+                        impressions_processed, conversions_processed, impressions_aggregated,
+                        impressions_batches, conversions_batches, execution_time,
+                        impressions_rollup_time, conversions_identification_time
+                    )
+                    
+                    # Update timeseries data with new stats
+                    self.update_timeseries_stats(iteration_stats)
+                    
+                    # Write stats to services table
+                    self.update_service_stats()
                     
                     # Calculate time until 5 seconds into the next minute
                     current_time = datetime.now(timezone.utc)
