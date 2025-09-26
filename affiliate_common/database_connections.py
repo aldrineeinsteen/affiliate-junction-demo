@@ -527,7 +527,6 @@ class PrestoConnection:
         
         # Check if we already have metrics for this query pattern
         existing_metrics = self._find_existing_query_metric(simplified_query)
-        
         if existing_metrics:
             # Increment repeat count and update timing
             existing_metrics.repeat_count += 1
@@ -542,7 +541,7 @@ class PrestoConnection:
             # Format the query using sqlparse
             formatted_query = None
             try:
-                formatted_query = sqlparse.format(query, reindent=True, keyword_case='upper')
+                formatted_query = sqlparse.format(query[:750], reindent=True, keyword_case='upper')
             except Exception as e:
                 logger.debug(f"Could not format Presto query with sqlparse: {e}")
                 formatted_query = query  # Fallback to original query
@@ -578,15 +577,28 @@ class PrestoConnection:
                 
                 cursor = self.connection.cursor()
                 cursor.execute(query, parameters)
-                result = cursor.fetchall()
+                
+                # Determine if this is a SELECT query or a modification query (INSERT/UPDATE/DELETE)
+                query_upper = query.strip().upper()
+                is_select_query = query_upper.startswith('SELECT') or query_upper.startswith('WITH') or query_upper.startswith('SHOW') or query_upper.startswith('DESCRIBE')
+                
+                if is_select_query:
+                    # For SELECT queries, fetch the results
+                    result = cursor.fetchall()
+                    current_metrics.rows_returned = len(result) if result else 0
+                else:
+                    # For INSERT/UPDATE/DELETE queries, don't fetch results
+                    # Instead, get the row count if available
+                    result = None
+                    try:
+                        current_metrics.rows_returned = cursor.rowcount if hasattr(cursor, 'rowcount') else 0
+                    except:
+                        current_metrics.rows_returned = 0
                 
                 # Calculate execution time
                 end_time = time.time()
                 current_metrics.end_time = datetime.now(timezone.utc)
                 current_metrics.execution_time_ms = (end_time - start_time) * 1000
-                
-                # Count rows returned
-                current_metrics.rows_returned = len(result) if result else 0
                 current_metrics.success = True
                 
                 logger.debug(f"Query {current_metrics.query_id} completed successfully: {current_metrics.rows_returned} rows in {current_metrics.execution_time_ms:.2f}ms")

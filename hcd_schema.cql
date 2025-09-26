@@ -17,7 +17,16 @@ CREATE TABLE IF NOT EXISTS impression_tracking (
     impressions INT,
     PRIMARY KEY ((publishers_id, cookie_id, advertisers_id), timestamp)
 ) WITH CLUSTERING ORDER BY (timestamp DESC)
-AND default_time_to_live = 3600;
+AND default_time_to_live = 300
+AND gc_grace_seconds = 0
+AND compaction = {
+  'class': 'TimeWindowCompactionStrategy',
+  'compaction_window_unit': 'MINUTES',
+  'compaction_window_size': '1',
+  'timestamp_resolution': 'MICROSECONDS',
+  'min_threshold': '2',
+  'max_threshold': '16'
+};
 
 -- Create conversion tracking table
 CREATE TABLE IF NOT EXISTS conversion_tracking (
@@ -26,7 +35,16 @@ CREATE TABLE IF NOT EXISTS conversion_tracking (
     cookie_id TEXT,
     PRIMARY KEY (advertisers_id, timestamp)
 ) WITH CLUSTERING ORDER BY (timestamp DESC)
-AND default_time_to_live = 3600;
+AND default_time_to_live = 300
+AND gc_grace_seconds = 0
+AND compaction = {
+  'class': 'TimeWindowCompactionStrategy',
+  'compaction_window_unit': 'MINUTES',
+  'compaction_window_size': '1',
+  'timestamp_resolution': 'MICROSECONDS',
+  'min_threshold': '2',
+  'max_threshold': '16'
+};
 
 -- Create impressions by minute table for time-based impression tracking
 CREATE TABLE IF NOT EXISTS impressions_by_minute (
@@ -39,7 +57,16 @@ CREATE TABLE IF NOT EXISTS impressions_by_minute (
     impression_id UUID,     
     PRIMARY KEY ((bucket_date, bucket), ts, publishers_id, advertisers_id, cookie_id, impression_id)
 ) WITH CLUSTERING ORDER BY (ts ASC)
-AND default_time_to_live = 6000;
+AND default_time_to_live = 600
+AND gc_grace_seconds = 0
+AND compaction = {
+  'class': 'TimeWindowCompactionStrategy',
+  'compaction_window_unit': 'MINUTES',
+  'compaction_window_size': '5',
+  'timestamp_resolution': 'MICROSECONDS',
+  'min_threshold': '2',
+  'max_threshold': '16'
+};
 
 -- Create conversions by minute table for time-based conversion tracking
 CREATE TABLE IF NOT EXISTS conversions_by_minute (
@@ -52,7 +79,16 @@ CREATE TABLE IF NOT EXISTS conversions_by_minute (
     conversion_id UUID,     
     PRIMARY KEY ((bucket_date, bucket), ts, publishers_id, advertisers_id, cookie_id, conversion_id)
 ) WITH CLUSTERING ORDER BY (ts ASC)
-AND default_time_to_live = 6000;
+AND default_time_to_live = 600
+AND gc_grace_seconds = 0
+AND compaction = {
+  'class': 'TimeWindowCompactionStrategy',
+  'compaction_window_unit': 'MINUTES',
+  'compaction_window_size': '5',
+  'timestamp_resolution': 'MICROSECONDS',
+  'min_threshold': '2',
+  'max_threshold': '16'
+};
 
 -- Create publishers table with trailing 90-minute data using JSON text fields
 -- Each JSON array contains objects with timestamp and count: [{"ts": 1234567890, "count": 10}, ...]
@@ -71,7 +107,16 @@ CREATE TABLE IF NOT EXISTS advertisers (
     conversions text,
     last_updated TIMESTAMP,
     PRIMARY KEY (advertiser_id)
-) WITH default_time_to_live = 21600;
+) WITH default_time_to_live = 21600
+AND gc_grace_seconds = 0
+AND compaction = {
+  'class': 'TimeWindowCompactionStrategy',
+  'compaction_window_unit': 'HOURS',
+  'compaction_window_size': '1',         -- ~6 active windows for a 6h TTL
+  'timestamp_resolution': 'MICROSECONDS',
+  'min_threshold': '2',
+  'max_threshold': '16'
+};
 
 -- Create services table for managing system services
 CREATE TABLE IF NOT EXISTS services (
