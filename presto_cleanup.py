@@ -208,14 +208,19 @@ class AffiliateJunctionDataCleanup:
                     iteration_stats['total_execution_time_seconds'] = [current_timestamp, execution_time]
                     
                     # Get query metrics from database connections
+                    cassandra_metrics = self.cassandra_connection.get_query_metrics()
                     presto_metrics = self.presto_conn.get_query_metrics() if self.presto_conn else None
                     
                     # Update services table with stats and query metrics
                     if iteration_stats:
                         self.services_manager.update_timeseries_stats(iteration_stats)
-                        self.services_manager.update_query_metrics(presto_metrics=presto_metrics)
+                        self.services_manager.update_query_metrics(
+                            cassandra_metrics=cassandra_metrics,
+                            presto_metrics=presto_metrics
+                        )
                     
                     # Clear query metrics after storing them
+                    self.cassandra_connection.clear_query_metrics()
                     if self.presto_conn:
                         self.presto_conn.clear_query_metrics()
                     

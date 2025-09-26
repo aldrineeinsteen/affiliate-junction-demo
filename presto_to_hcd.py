@@ -106,12 +106,10 @@ class AffiliateJunctionInsights:
         processing_start_time = time.time()
         
         try:
-            cursor = self.presto_connection.cursor()
-            
             start_time = target_minute
             end_time = target_minute + timedelta(minutes=1)
             
-            # Define the ID column name based on entity type
+            # Define the ID column name based on entity type (for Presto/Iceberg queries)
             id_column = f"{entity_type[:-1]}s_id"  # publishers -> publishers_id, advertisers -> advertisers_id
             
             # Format datetime values directly into the query (Presto doesn't support parameterized queries)
@@ -126,9 +124,11 @@ class AffiliateJunctionInsights:
             GROUP BY {id_column}
             """
             
-            cursor.execute(impressions_query)
-            entity_impressions = cursor.fetchall()
-            cursor.close()
+            # Execute query using the connection wrapper to capture metrics
+            entity_impressions = self.presto_client.execute_query(
+                query=impressions_query,
+                query_description=f"Get {entity_type} impression totals for minute {target_minute}"
+            )
             
             entities_processed = len(entity_impressions)
             total_impressions = 0
@@ -195,9 +195,9 @@ class AffiliateJunctionInsights:
             entity_type (str): Type of entity - 'publishers' or 'advertisers'
         """
         try:
-            # Define table and column names based on entity type
+            # Define table and column names based on entity type (for Cassandra queries)
             table_name = entity_type
-            id_column = f"{entity_type[:-1]}_id"  # Remove 's' from end (publishers -> publisher_id)
+            id_column = f"{entity_type[:-1]}_id"  # Remove 's' from end (publishers -> publisher_id, advertisers -> advertiser_id)
             
             # First, try to read existing record
             select_query = f"""
@@ -206,7 +206,13 @@ class AffiliateJunctionInsights:
             WHERE {id_column} = '{entity_id}'
             """
             
-            existing_row = self.cassandra_session.execute(select_query).one()
+            existing_row = self.cassandra_connection.execute_query(
+                query=select_query,
+                query_description=f"Get existing {entity_type[:-1]} {entity_id} record"
+            )
+            
+            # Convert result to single row if needed
+            existing_row = existing_row[0] if existing_row else None
             
             current_time = datetime.now(timezone.utc)
             
@@ -247,11 +253,15 @@ class AffiliateJunctionInsights:
                 # Update the record
                 update_query = f"""
                 UPDATE {table_name}
-                SET impressions = %s, last_updated = %s
-                WHERE {id_column} = %s
+                SET impressions = ?, last_updated = ?
+                WHERE {id_column} = ?
                 """
                 
-                self.cassandra_session.execute(update_query, [updated_impressions_json, current_time, entity_id])
+                self.cassandra_connection.execute_query(
+                    query=update_query,
+                    parameters=[updated_impressions_json, current_time, entity_id],
+                    query_description=f"Update {entity_type[:-1]} {entity_id} impressions"
+                )
                 logger.debug(f"Updated {entity_type[:-1]} {entity_id} with {impression_count} impressions for timestamp {unix_timestamp}")
                 
             else:
@@ -265,7 +275,11 @@ class AffiliateJunctionInsights:
                 new_impressions_json = json.dumps([new_impression_tuple])
                 empty_conversions_json = json.dumps([])
                 
-                self.cassandra_session.execute(insert_query, [entity_id, new_impressions_json, empty_conversions_json, current_time])
+                self.cassandra_connection.execute_query(
+                    query=insert_query,
+                    parameters=[entity_id, new_impressions_json, empty_conversions_json, current_time],
+                    query_description=f"Insert new {entity_type[:-1]} {entity_id}"
+                )
                 logger.debug(f"Inserted new {entity_type[:-1]} {entity_id} with {impression_count} impressions for timestamp {unix_timestamp}")
                 
         except Exception as e:
@@ -316,9 +330,22 @@ class AffiliateJunctionInsights:
             logger.error(f"Failed to update timeseries stats: {e}")
     
     def update_service_stats(self):
-        """Update the services table with current stats"""
+        """Update the services table with current stats and query metrics"""
         try:
-            self.services_manager.update_service_stats()
+            # Get query metrics from database connections
+            cassandra_metrics = self.cassandra_connection.get_query_metrics()
+            presto_metrics = self.presto_client.get_query_metrics() if self.presto_client else None
+            
+            # Update services table with stats and query metrics
+            self.services_manager.update_query_metrics(
+                cassandra_metrics=cassandra_metrics,
+                presto_metrics=presto_metrics
+            )
+            
+            # Clear metrics after storing them
+            self.cassandra_connection.clear_query_metrics()
+            if self.presto_client:
+                self.presto_client.clear_query_metrics()
             
         except Exception as e:
             logger.error(f"Failed to update service stats: {e}")

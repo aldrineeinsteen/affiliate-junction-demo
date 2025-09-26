@@ -492,6 +492,60 @@ def advertiser_dashboard(request: Request, advertiser_id: str):
     })
 
 
+# --- Services API endpoints ---
+@app.get("/api/services/{service_name}/query-metrics")
+def get_service_query_metrics(service_name: str, request: Request):
+    """Get query metrics for a specific service"""
+    # Check authentication and redirect if necessary
+    redirect_response = check_auth_or_redirect(request)
+    if redirect_response:
+        return redirect_response
+    
+    with cassandra_wrapper.request_context():
+        try:
+            # Query the services table for query_metrics for the specific service
+            cassandra_session = hcd_operations.get_cassandra_session()
+            query = "SELECT name, query_metrics FROM affiliate_junction.services WHERE name = %s"
+            result = cassandra_session.execute(query, [service_name])
+            
+            all_query_metrics = []
+            for row in result:
+                if row.query_metrics:
+                    try:
+                        import json
+                        service_metrics = json.loads(row.query_metrics)
+                        if isinstance(service_metrics, list) and service_metrics:
+                            # Add service name to each metric for identification
+                            for metric in service_metrics:
+                                metric['service_name'] = row.name
+                            all_query_metrics.extend(service_metrics)
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.warning(f"Failed to parse query_metrics JSON for service {row.name}: {e}")
+                        continue
+            
+            # Get query metrics for this API request itself
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            # Combine service historical metrics with the current API call metrics
+            combined_query_metrics = all_query_metrics + query_metrics
+            
+            logger.info(f"Retrieved {len(all_query_metrics)} query metrics for service {service_name}")
+            
+            return {
+                "query_metrics": combined_query_metrics
+            }
+            
+        except Exception as e:
+            logger.error(f"Error fetching query metrics for service {service_name}: {e}")
+            
+            # Still get query metrics even if there was an error
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return {
+                "error": str(e),
+                "query_metrics": query_metrics
+            }
+
 # --- Services UI endpoint ---
 @app.get("/services", response_class=HTMLResponse)
 def services_dashboard(request: Request):

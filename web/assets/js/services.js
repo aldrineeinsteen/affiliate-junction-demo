@@ -18,6 +18,45 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 /**
+ * Fetch service query metrics via API call for a specific service
+ * The enhanced fetch wrapper will automatically track this as an XHR request
+ * and inject the returned query_metrics into the query panel
+ * @param {string} serviceName - Name of the service to fetch metrics for
+ */
+async function fetchServiceQueryMetrics(serviceName) {
+    try {
+        console.log(`Fetching query metrics for service: ${serviceName}`);
+        
+        // Clear existing queries from panel before fetching new ones
+        // This is equivalent to clicking the trash can button
+        if (typeof window.resetQueryCounters === 'function') {
+            window.resetQueryCounters();
+            console.log('Cleared existing query metrics from panel');
+        } else {
+            console.warn('resetQueryCounters function not available');
+        }
+        
+        // This fetch call will be automatically intercepted by the enhanced fetch wrapper
+        // in partial-query-system.js and the response query_metrics will be processed
+        const response = await fetch(`/api/services/${serviceName}/query-metrics`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        console.log(`Service query metrics API call completed for ${serviceName}`);
+        // The query_metrics in the response will be automatically processed by the 
+        // enhanced fetch wrapper and added to the query panel
+        
+    } catch (error) {
+        console.error(`Error fetching service query metrics for ${serviceName}:`, error);
+        // The error will also be automatically tracked by the enhanced fetch wrapper
+    }
+}
+
+/**
  * Initialize charts for all services
  */
 function initializeAllCharts() {
@@ -51,6 +90,9 @@ function initializeTabNavigation() {
             
             // Refresh charts in the active tab to ensure proper rendering
             refreshChartsInPane(targetPane, serviceName);
+            
+            // Fetch query metrics for this specific service
+            fetchServiceQueryMetrics(serviceName);
         });
     });
     

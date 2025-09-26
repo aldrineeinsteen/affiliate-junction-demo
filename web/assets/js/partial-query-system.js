@@ -358,6 +358,9 @@ function resetQueryCounters() {
   updateQueryBadge();
 }
 
+// Make resetQueryCounters available globally for services.js
+window.resetQueryCounters = resetQueryCounters;
+
 /**
  * Enhanced fetch wrapper that automatically tracks all API requests
  * This replaces the global fetch function to provide automatic query monitoring

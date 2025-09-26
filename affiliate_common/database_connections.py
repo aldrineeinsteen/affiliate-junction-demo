@@ -15,6 +15,7 @@ from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass
 from contextlib import contextmanager
 import prestodb
+import sqlparse
 from cassandra.cluster import Cluster, ExecutionProfile
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.policies import DCAwareRoundRobinPolicy
@@ -39,23 +40,49 @@ class QueryMetrics:
     prepared: bool
     retry_count: int = 0
     rows_data: Optional[List[Any]] = None
+    formatted_query_text: Optional[str] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert metrics to dictionary for JSON serialization"""
+        # Sanitize parameters for JSON serialization
+        sanitized_parameters = None
+        if self.parameters is not None:
+            # Limit to max 10 parameters
+            limited_params = self.parameters[:10] if len(self.parameters) > 10 else self.parameters
+            sanitized_parameters = []
+            
+            for param in limited_params:
+                try:
+                    # Convert parameter to string
+                    if isinstance(param, datetime):
+                        param_str = param.isoformat()
+                    else:
+                        param_str = str(param)
+                    
+                    # Truncate if too long
+                    if len(param_str) > 15:
+                        param_str = param_str[:12] + "..."
+                    
+                    sanitized_parameters.append(param_str)
+                except Exception:
+                    # If conversion fails, use a placeholder
+                    sanitized_parameters.append("<unconvertible>")
+        
         return {
             "query_id": self.query_id,
             "query_text": self.query_text,
             "query_description": self.query_description,
             "query_type": self.query_type,
-            "parameters": self.parameters,
-            "start_time": self.start_time.isoformat() if self.start_time else None,
-            "end_time": self.end_time.isoformat() if self.end_time else None,
+            "parameters": sanitized_parameters,
+            "start_time": self.start_time.isoformat() if self.start_time is not None else None,
+            "end_time": self.end_time.isoformat() if self.end_time is not None else None,
             "execution_time_ms": self.execution_time_ms,
             "rows_returned": self.rows_returned,
             "success": self.success,
             "error_message": self.error_message,
             "prepared": self.prepared,
             "retry_count": self.retry_count,
+            "formatted_query_text": self.formatted_query_text,
             # Don't include rows_data for batch services to save space
             "rows_data": None
         }
@@ -135,9 +162,18 @@ class CassandraConnection:
         """Execute a single CQL query and capture metrics"""
         query_id = self._generate_query_id()
         
+        # Format the query using sqlparse
+        formatted_query = None
+        try:
+            formatted_query = sqlparse.format(query, reindent=True, keyword_case='upper')
+        except Exception as e:
+            logger.debug(f"Could not format CQL query with sqlparse: {e}")
+            formatted_query = query  # Fallback to original query
+        
         metrics = QueryMetrics(
             query_id=query_id,
             query_text=query,
+            formatted_query_text=formatted_query,
             query_description=query_description,
             query_type="HCD",
             parameters=parameters,
@@ -260,8 +296,9 @@ class CassandraConnection:
         metrics = QueryMetrics(
             query_id=batch_query_id,
             query_text=combined_query_text,
+            formatted_query_text=combined_query_text,
             query_description=query_description or 'Batch operation',
-            query_type="HCD_BATCH",
+            query_type="HCD",
             parameters=None,  # Don't store parameters for batch operations
             start_time=datetime.now(timezone.utc),
             end_time=None,
@@ -384,9 +421,19 @@ class PrestoConnection:
                      max_retries: int = 3, query_description: Optional[str] = None) -> Any:
         """Execute a Presto query and capture metrics"""
         query_id = self._generate_query_id()
+        
+        # Format the query using sqlparse
+        formatted_query = None
+        try:
+            formatted_query = sqlparse.format(query, reindent=True, keyword_case='upper')
+        except Exception as e:
+            logger.debug(f"Could not format Presto query with sqlparse: {e}")
+            formatted_query = query  # Fallback to original query
+        
         metrics = QueryMetrics(
             query_id=query_id,
             query_text=query,
+            formatted_query_text=formatted_query,
             query_description=query_description,
             query_type="Presto",
             parameters=parameters,
