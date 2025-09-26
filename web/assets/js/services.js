@@ -10,18 +10,8 @@ document.addEventListener('DOMContentLoaded', function() {
         console.warn('No services data available for chart initialization');
     }
     
-    // Handle tab switching
-    const tabLinks = document.querySelectorAll('#servicesTabs button[data-bs-toggle="tab"]');
-    tabLinks.forEach(tab => {
-        tab.addEventListener('shown.bs.tab', function(event) {
-            const targetPane = event.target.getAttribute('data-bs-target');
-            const serviceName = event.target.id.replace('-tab', '');
-            console.log(`Switched to service tab: ${serviceName}`);
-            
-            // Refresh charts in the active tab to ensure proper rendering
-            refreshChartsInPane(targetPane, serviceName);
-        });
-    });
+    // Initialize URL-based tab navigation
+    initializeTabNavigation();
     
     // Initialize settings form handlers
     initializeSettingsHandlers();
@@ -36,6 +26,83 @@ function initializeAllCharts() {
             initializeServiceCharts(service);
         }
     });
+}
+
+/**
+ * Initialize URL-based tab navigation
+ */
+function initializeTabNavigation() {
+    console.log('Initializing URL-based tab navigation');
+    
+    // Handle tab switching events
+    const tabLinks = document.querySelectorAll('#servicesTabs a[data-bs-toggle="tab"]');
+    tabLinks.forEach(tab => {
+        tab.addEventListener('shown.bs.tab', function(event) {
+            const targetPane = event.target.getAttribute('data-bs-target');
+            const serviceName = event.target.id.replace('-tab', '');
+            const anchor = event.target.getAttribute('href');
+            
+            console.log(`Switched to service tab: ${serviceName}`);
+            
+            // Update URL with anchor (without triggering page reload)
+            if (anchor && anchor !== window.location.hash) {
+                history.replaceState(null, null, anchor);
+            }
+            
+            // Refresh charts in the active tab to ensure proper rendering
+            refreshChartsInPane(targetPane, serviceName);
+        });
+    });
+    
+    // Handle browser back/forward navigation
+    window.addEventListener('hashchange', function() {
+        activateTabFromHash();
+    });
+    
+    // Activate correct tab based on URL hash on page load
+    activateTabFromHash();
+}
+
+/**
+ * Activate the correct tab based on the current URL hash
+ */
+function activateTabFromHash() {
+    const hash = window.location.hash;
+    
+    if (hash) {
+        // Find the tab that matches the hash
+        const tabLink = document.querySelector(`#servicesTabs a[href="${hash}"]`);
+        
+        if (tabLink) {
+            console.log(`Activating tab from URL hash: ${hash}`);
+            
+            // Use Bootstrap's tab methods to switch to the correct tab
+            const tab = new bootstrap.Tab(tabLink);
+            tab.show();
+            
+            return; // Exit early since we found and activated the tab
+        } else {
+            console.warn(`No tab found for hash: ${hash}`);
+        }
+    }
+    
+    // If no hash or invalid hash, activate the first tab and set its hash
+    const firstTabLink = document.querySelector('#servicesTabs a[data-bs-toggle="tab"]');
+    if (firstTabLink) {
+        console.log('No valid hash found, activating first tab');
+        
+        // Get the href from the first tab to use as default hash
+        const defaultHash = firstTabLink.getAttribute('href');
+        
+        // Update URL with the default hash if there's no hash currently
+        if (!window.location.hash && defaultHash) {
+            history.replaceState(null, null, defaultHash);
+        }
+        
+        // Activate the first tab
+        const firstTab = new bootstrap.Tab(firstTabLink);
+        firstTab.show();
+    }
 }
 
 /**

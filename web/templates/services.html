@@ -36,16 +36,16 @@
         <ul class="nav nav-tabs" id="servicesTabs" role="tablist">
           {% for service in services %}
           <li class="nav-item" role="presentation">
-            <button class="nav-link {% if loop.first %}active{% endif %}" 
-                    id="{{ service.name }}-tab" 
-                    data-bs-toggle="tab" 
-                    data-bs-target="#{{ service.name }}-pane" 
-                    type="button" 
-                    role="tab" 
-                    aria-controls="{{ service.name }}-pane" 
-                    aria-selected="{% if loop.first %}true{% else %}false{% endif %}">
+            <a class="nav-link" 
+               id="{{ service.name }}-tab" 
+               data-bs-toggle="tab" 
+               data-bs-target="#{{ service.name }}-pane" 
+               href="#{{ service.name }}" 
+               role="tab" 
+               aria-controls="{{ service.name }}-pane" 
+               aria-selected="false">
               {{ service.name|title }}
-            </button>
+            </a>
           </li>
           {% endfor %}
         </ul>
@@ -53,7 +53,7 @@
         <!-- Service Tab Panes -->
         <div class="tab-content" id="servicesTabContent">
           {% for service in services %}
-          <div class="tab-pane fade {% if loop.first %}show active{% endif %}" 
+          <div class="tab-pane fade" 
                id="{{ service.name }}-pane" 
                role="tabpanel" 
                aria-labelledby="{{ service.name }}-tab">
