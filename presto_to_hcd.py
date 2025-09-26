@@ -163,8 +163,12 @@ class AffiliateJunctionInsights:
         Args:
             target_minute (datetime): The minute timestamp to process impressions for
             entity_type (str): Type of entity - 'publishers' or 'advertisers'
+            
+        Returns:
+            tuple: (entities_processed, total_impressions, processing_time)
         """
         logger.info(f"Starting {entity_type[:-1]} impressions processing for minute: {target_minute}")
+        processing_start_time = time.time()
         
         try:
             cursor = self.presto_connection.cursor()
@@ -191,9 +195,13 @@ class AffiliateJunctionInsights:
             entity_impressions = cursor.fetchall()
             cursor.close()
             
+            entities_processed = len(entity_impressions)
+            total_impressions = 0
+            
             if not entity_impressions:
                 logger.info(f"No impressions found for {entity_type} in minute: {target_minute}")
-                return
+                processing_time = time.time() - processing_start_time
+                return entities_processed, total_impressions, processing_time
             
             logger.info(f"Found impressions for {len(entity_impressions)} {entity_type} in minute: {target_minute}")
             
@@ -203,6 +211,7 @@ class AffiliateJunctionInsights:
             for row in entity_impressions:
                 entity_id = row[0]
                 impression_count = int(row[1])
+                total_impressions += impression_count
                 
                 self.upsert_entity_impressions(entity_id, unix_timestamp, impression_count, entity_type)
             
@@ -210,7 +219,10 @@ class AffiliateJunctionInsights:
             logger.error(f"Error during {entity_type[:-1]} impressions processing: {e}")
             raise
         
+        processing_time = time.time() - processing_start_time
         logger.info(f"{entity_type.capitalize()} impressions processing completed for minute: {target_minute}")
+        
+        return entities_processed, total_impressions, processing_time
 
     def process_publisher_impressions(self, target_minute):
         """
@@ -219,6 +231,9 @@ class AffiliateJunctionInsights:
         
         Args:
             target_minute (datetime): The minute timestamp to process impressions for
+            
+        Returns:
+            tuple: (publishers_processed, total_impressions, processing_time)
         """
         return self.process_entity_impressions(target_minute, 'publishers')
 
@@ -228,6 +243,9 @@ class AffiliateJunctionInsights:
         
         Args:
             target_minute (datetime): The minute timestamp to process impressions for
+            
+        Returns:
+            tuple: (advertisers_processed, total_impressions, processing_time)
         """
         return self.process_entity_impressions(target_minute, 'advertisers')
     
@@ -331,6 +349,70 @@ class AffiliateJunctionInsights:
         """
         return self.upsert_entity_impressions(publisher_id, unix_timestamp, impression_count, 'publishers')
     
+    def collect_iteration_stats(self, publishers_processed, advertisers_processed, publisher_impressions_total, advertiser_impressions_total, execution_time, publisher_processing_time, advertiser_processing_time, presto_queries_executed):
+        """Collect stats from current iteration"""
+        try:
+            current_timestamp = int(time.time())
+            
+            # Collect all stats as (timestamp, value) tuples
+            stats = {
+                'publishers_processed': (current_timestamp, publishers_processed),
+                'advertisers_processed': (current_timestamp, advertisers_processed),
+                'publisher_impressions_total': (current_timestamp, publisher_impressions_total),
+                'advertiser_impressions_total': (current_timestamp, advertiser_impressions_total),
+                'execution_time_seconds': (current_timestamp, round(execution_time, 2)),
+                'publisher_processing_time': (current_timestamp, round(publisher_processing_time, 2)),
+                'advertiser_processing_time': (current_timestamp, round(advertiser_processing_time, 2)),
+                'presto_queries_executed': (current_timestamp, presto_queries_executed)
+            }
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Failed to collect iteration stats: {e}")
+            return {}
+    
+    def update_timeseries_stats(self, iteration_stats):
+        """Update timeseries data with new stats, maintaining 90 datapoints"""
+        try:
+            for metric_name, (timestamp, value) in iteration_stats.items():
+                if metric_name in self.stats_timeseries:
+                    # Add new datapoint
+                    self.stats_timeseries[metric_name].append([timestamp, value])
+                    
+                    # Maintain only the most recent 90 datapoints
+                    if len(self.stats_timeseries[metric_name]) > 90:
+                        self.stats_timeseries[metric_name] = self.stats_timeseries[metric_name][-90:]
+            
+            logger.debug(f"Updated timeseries stats with {len(iteration_stats)} metrics")
+            
+        except Exception as e:
+            logger.error(f"Failed to update timeseries stats: {e}")
+    
+    def update_service_stats(self):
+        """Update the services table with current stats"""
+        try:
+            # Serialize stats as JSON
+            stats_json = json.dumps(self.stats_timeseries)
+            
+            # Update the service record with new stats
+            update_query = f"""
+                UPDATE {os.getenv('HCD_KEYSPACE')}.services 
+                SET stats = %s, last_updated = %s
+                WHERE name = %s
+            """
+            
+            self.cassandra_session.execute(update_query, [
+                stats_json,
+                datetime.now(timezone.utc),
+                'presto_to_hcd'
+            ])
+            
+            logger.debug("Successfully updated service stats")
+            
+        except Exception as e:
+            logger.error(f"Failed to update service stats: {e}")
+    
     def cleanup(self):
         """Clean up connections"""
         try:
@@ -366,11 +448,31 @@ class AffiliateJunctionInsights:
                     current_time = datetime.now(timezone.utc)
                     target_minute = current_time.replace(second=0, microsecond=0) - timedelta(minutes=1)
                     
+                    # Poll services table for configuration updates
+                    self.poll_services_table()
+                    
                     # Main processing tasks
-                    self.process_publisher_impressions(target_minute)
-                    self.process_advertiser_impressions(target_minute)
+                    publishers_processed, publisher_impressions_total, publisher_processing_time = self.process_publisher_impressions(target_minute)
+                    advertisers_processed, advertiser_impressions_total, advertiser_processing_time = self.process_advertiser_impressions(target_minute)
                     
                     execution_time = time.time() - iteration_start
+                    
+                    # We executed 2 Presto queries (one for publishers, one for advertisers)
+                    presto_queries_executed = 2
+                    
+                    # Collect stats from this iteration
+                    iteration_stats = self.collect_iteration_stats(
+                        publishers_processed, advertisers_processed, 
+                        publisher_impressions_total, advertiser_impressions_total,
+                        execution_time, publisher_processing_time, advertiser_processing_time,
+                        presto_queries_executed
+                    )
+                    
+                    # Update timeseries data with new stats
+                    self.update_timeseries_stats(iteration_stats)
+                    
+                    # Write stats to services table
+                    self.update_service_stats()
                     
                     # Calculate time until 45 seconds past the next minute
                     next_minute_plus_45 = (current_time.replace(second=0, microsecond=0) + timedelta(minutes=1, seconds=45))

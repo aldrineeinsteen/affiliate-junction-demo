@@ -133,7 +133,7 @@
               {% endif %}
 
               <!-- Service Settings Card -->
-              {% if service.settings %}
+              {% if service.settings and service.settings|length > 0 %}
               <div class="row mt-3">
                 <div class="col-md-12">
                   <div class="card">
