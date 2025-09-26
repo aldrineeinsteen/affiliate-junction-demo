@@ -133,17 +133,44 @@
               {% endif %}
 
               <!-- Service Settings Card -->
-              {% if service.settings and service.settings|length > 0 %}
+              {% if service.parsed_settings and service.parsed_settings|length > 0 %}
               <div class="row mt-3">
                 <div class="col-md-12">
                   <div class="card">
-                    <div class="card-header">
+                    <div class="card-header d-flex justify-content-between align-items-center">
                       <h5 class="card-title mb-0">
                         <i class="bi bi-sliders"></i> Configuration
                       </h5>
+                      <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-sm btn-primary" id="save-settings-{{ service.name }}" disabled title="No changes to save">
+                          Save
+                        </button>
+                      </div>
                     </div>
                     <div class="card-body">
-                      <pre class="settings-json">{{ service.settings }}</pre>
+                      <!-- Always-editable form -->
+                      <form id="settings-form-{{ service.name }}" class="settings-form" data-service="{{ service.name }}">
+                        <div class="row">
+                          {% for key, value in service.parsed_settings.items() %}
+                          <div class="col-md-6 mb-3">
+                            <div class="form-group">
+                              <label for="setting-{{ service.name }}-{{ key }}" class="form-label fw-bold">
+                                {{ key|replace('_', ' ')|title }}
+                              </label>
+                              <input type="text" 
+                                     class="form-control" 
+                                     id="setting-{{ service.name }}-{{ key }}"
+                                     name="{{ key }}" 
+                                     value="{{ value }}"
+                                     {% if key.endswith('_COUNT') or key.endswith('_MIN') or key.endswith('_MINS') %}
+                                     pattern="[0-9]+"
+                                     title="Please enter a positive number"
+                                     {% endif %}>
+                            </div>
+                          </div>
+                          {% endfor %}
+                        </div>
+                      </form>
                     </div>
                   </div>
                 </div>

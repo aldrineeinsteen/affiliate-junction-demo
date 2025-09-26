@@ -22,6 +22,9 @@ document.addEventListener('DOMContentLoaded', function() {
             refreshChartsInPane(targetPane, serviceName);
         });
     });
+    
+    // Initialize settings form handlers
+    initializeSettingsHandlers();
 });
 
 /**
@@ -366,3 +369,319 @@ window.addEventListener('error', function(event) {
         handleChartJSError(event.error);
     }
 });
+
+/**
+ * Initialize settings form handlers for all services
+ */
+function initializeSettingsHandlers() {
+    console.log('Initializing settings form handlers');
+    
+    // Find all save buttons and forms, attach handlers
+    const saveButtons = document.querySelectorAll('[id^="save-settings-"]');
+    saveButtons.forEach(button => {
+        const serviceName = button.id.replace('save-settings-', '');
+        const form = document.getElementById(`settings-form-${serviceName}`);
+        
+        if (form) {
+            // Store original values for change detection
+            storeOriginalValues(serviceName, form);
+            
+            // Add input change listeners to all form inputs
+            const inputs = form.querySelectorAll('input');
+            inputs.forEach(input => {
+                input.addEventListener('input', () => checkForChanges(serviceName));
+                input.addEventListener('change', () => checkForChanges(serviceName));
+            });
+        }
+        
+        // Save button handler
+        button.addEventListener('click', () => saveSettings(serviceName));
+    });
+}
+
+/**
+ * Store original form values for change detection
+ * @param {string} serviceName - Name of the service
+ * @param {HTMLFormElement} form - The form element
+ */
+function storeOriginalValues(serviceName, form) {
+    const originalValues = {};
+    const inputs = form.querySelectorAll('input');
+    
+    inputs.forEach(input => {
+        originalValues[input.name] = input.value;
+    });
+    
+    // Store in a global object for later comparison
+    if (!window.originalFormValues) {
+        window.originalFormValues = {};
+    }
+    window.originalFormValues[serviceName] = originalValues;
+}
+
+/**
+ * Check for changes in form values and update save button state
+ * @param {string} serviceName - Name of the service
+ */
+function checkForChanges(serviceName) {
+    const form = document.getElementById(`settings-form-${serviceName}`);
+    const saveBtn = document.getElementById(`save-settings-${serviceName}`);
+    
+    if (!form || !saveBtn || !window.originalFormValues || !window.originalFormValues[serviceName]) {
+        return;
+    }
+    
+    const originalValues = window.originalFormValues[serviceName];
+    const inputs = form.querySelectorAll('input');
+    let hasChanges = false;
+    
+    inputs.forEach(input => {
+        if (input.value !== originalValues[input.name]) {
+            hasChanges = true;
+        }
+    });
+    
+    // Enable/disable save button based on changes
+    saveBtn.disabled = !hasChanges;
+    
+    // Update button appearance
+    if (hasChanges) {
+        saveBtn.classList.remove('btn-outline-primary');
+        saveBtn.classList.add('btn-primary');
+        saveBtn.title = 'Click to save changes';
+    } else {
+        saveBtn.classList.remove('btn-primary');
+        saveBtn.classList.add('btn-outline-primary');
+        saveBtn.title = 'No changes to save';
+    }
+}
+
+/**
+ * Save settings changes
+ * @param {string} serviceName - Name of the service
+ */
+async function saveSettings(serviceName) {
+    console.log(`Saving settings for service: ${serviceName}`);
+    
+    const form = document.getElementById(`settings-form-${serviceName}`);
+    const saveBtn = document.getElementById(`save-settings-${serviceName}`);
+    
+    if (!form) {
+        console.error('Settings form not found');
+        return;
+    }
+    
+    // Collect form data
+    const formData = new FormData(form);
+    const settings = {};
+    
+    for (let [key, value] of formData.entries()) {
+        // Convert numeric values
+        if (value.match(/^\d+$/)) {
+            settings[key] = parseInt(value);
+        } else {
+            settings[key] = value;
+        }
+    }
+    
+    console.log('Settings to save:', settings);
+    
+    try {
+        // Disable save button and show saving state
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Saving...';
+            saveBtn.classList.remove('btn-primary', 'btn-outline-primary');
+            saveBtn.classList.add('btn-warning');
+        }
+        
+        // Send PUT request to update settings
+        const response = await fetch(`/api/services/${serviceName}/settings`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(settings)
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            console.log('Settings saved successfully:', result);
+            
+            // Update original values to new saved values
+            storeOriginalValues(serviceName, form);
+            
+            // Show success state briefly
+            if (saveBtn) {
+                saveBtn.innerHTML = '<i class="bi bi-check-circle"></i> Saved!';
+                saveBtn.classList.remove('btn-warning');
+                saveBtn.classList.add('btn-success');
+            }
+            
+            // Show success notification
+            showNotification(`Configuration saved successfully for ${serviceName}!`, 'success');
+            
+            // After a brief delay, reset button to disabled state
+            setTimeout(() => {
+                if (saveBtn) {
+                    saveBtn.innerHTML = '<i class="bi bi-check"></i> Save';
+                    saveBtn.disabled = true;
+                    saveBtn.classList.remove('btn-success');
+                    saveBtn.classList.add('btn-outline-primary');
+                    saveBtn.title = 'No changes to save';
+                }
+            }, 2000);
+            
+        } else {
+            const errorData = await response.json();
+            console.error('Failed to save settings:', errorData);
+            showNotification(`Failed to save settings: ${errorData.detail || 'Unknown error'}`, 'danger');
+            
+            // Reset button to error state, then back to normal
+            if (saveBtn) {
+                saveBtn.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Error';
+                saveBtn.classList.remove('btn-warning');
+                saveBtn.classList.add('btn-danger');
+                
+                setTimeout(() => {
+                    saveBtn.innerHTML = '<i class="bi bi-check"></i> Save';
+                    saveBtn.classList.remove('btn-danger');
+                    saveBtn.classList.add('btn-primary');
+                    // Re-check for changes to set proper state
+                    checkForChanges(serviceName);
+                }, 3000);
+            }
+        }
+    } catch (error) {
+        console.error('Error saving settings:', error);
+        showNotification('Error saving settings. Please check your connection and try again.', 'danger');
+        
+        // Reset button to error state, then back to normal
+        if (saveBtn) {
+            saveBtn.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Error';
+            saveBtn.classList.remove('btn-warning');
+            saveBtn.classList.add('btn-danger');
+            
+            setTimeout(() => {
+                saveBtn.innerHTML = '<i class="bi bi-check"></i> Save';
+                saveBtn.classList.remove('btn-danger');
+                saveBtn.classList.add('btn-primary');
+                // Re-check for changes to set proper state
+                checkForChanges(serviceName);
+            }, 3000);
+        }
+    }
+}
+
+/**
+ * Show notification message
+ * @param {string} message - Message to show
+ * @param {string} type - Bootstrap alert type (success, danger, warning, info)
+ */
+function showNotification(message, type = 'info') {
+    // Remove existing notifications
+    const existingNotifications = document.querySelectorAll('.settings-notification');
+    existingNotifications.forEach(notification => notification.remove());
+    
+    // Create new notification with enhanced styling
+    const notification = document.createElement('div');
+    notification.className = `alert alert-${type} alert-dismissible fade show settings-notification mt-3`;
+    
+    // Add appropriate icon based on type
+    let icon = 'bi-info-circle';
+    if (type === 'success') icon = 'bi-check-circle-fill';
+    else if (type === 'danger') icon = 'bi-exclamation-triangle-fill';
+    else if (type === 'warning') icon = 'bi-exclamation-circle-fill';
+    
+    notification.innerHTML = `
+        <div class="d-flex align-items-center">
+            <i class="bi ${icon} me-2"></i>
+            <span>${message}</span>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    
+    // Insert notification at top of main content
+    const mainContent = document.querySelector('.col-md-9 .p-3');
+    if (mainContent) {
+        mainContent.insertBefore(notification, mainContent.firstChild);
+        
+        // Auto-remove after 5 seconds for success, 8 seconds for errors
+        const autoRemoveTime = type === 'success' ? 5000 : 8000;
+        setTimeout(() => {
+            if (notification && notification.parentElement) {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    if (notification.parentElement) {
+                        notification.remove();
+                    }
+                }, 150); // Allow fade out animation
+            }
+        }, autoRemoveTime);
+    }
+    
+    // Also show a toast-style notification for success
+    if (type === 'success') {
+        showToastNotification(message, 'success');
+    }
+}
+
+/**
+ * Show a toast-style notification in the top-right corner
+ * @param {string} message - Message to show
+ * @param {string} type - Notification type
+ */
+function showToastNotification(message, type = 'info') {
+    // Create toast container if it doesn't exist
+    let toastContainer = document.getElementById('toast-container');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toast-container';
+        toastContainer.className = 'toast-container position-fixed top-0 end-0 p-3';
+        toastContainer.style.zIndex = '1055';
+        document.body.appendChild(toastContainer);
+    }
+    
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = `toast align-items-center text-bg-${type} border-0`;
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+    toast.setAttribute('aria-atomic', 'true');
+    
+    toast.innerHTML = `
+        <div class="d-flex">
+            <div class="toast-body">
+                <i class="bi bi-check-circle-fill me-2"></i>${message}
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+    `;
+    
+    toastContainer.appendChild(toast);
+    
+    // Initialize and show the toast using Bootstrap
+    if (window.bootstrap && window.bootstrap.Toast) {
+        const bootstrapToast = new window.bootstrap.Toast(toast, {
+            autohide: true,
+            delay: 4000
+        });
+        bootstrapToast.show();
+        
+        // Remove toast element after it's hidden
+        toast.addEventListener('hidden.bs.toast', () => {
+            toast.remove();
+        });
+    } else {
+        // Fallback if Bootstrap Toast is not available
+        toast.classList.add('show');
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => {
+                if (toast.parentElement) {
+                    toast.remove();
+                }
+            }, 150);
+        }, 4000);
+    }
+}

@@ -4,10 +4,10 @@ import os
 import sys
 import time
 import logging
-import prestodb
 from datetime import datetime, timezone, timedelta
-from dotenv import load_dotenv
 
+# Import shared modules
+from affiliate_common import CassandraConnection, PrestoConnection, ServicesManager, SchemaExecutor
 
 # Configure logging
 logging.basicConfig(
@@ -20,40 +20,38 @@ logger = logging.getLogger(__name__)
 class AffiliateJunctionDataCleanup:
     def __init__(self):
         self.presto_connection = None
+        self.presto_conn = None
+        self.cassandra_connection = None
+        self.cassandra_session = None
+        self.services_manager = None
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
-        self.load_environment()
-        
-    def load_environment(self):
-        """Load environment variables from .env file"""
-        try:
-            load_dotenv()
-            logger.info("Environment variables loaded successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to load environment variables: {e}")
-            sys.exit(1)
+        ServicesManager.load_environment()
     
-    def connect_to_presto(self):
-        """Establish connection to Presto"""
-        try:           
-            self.presto_connection = prestodb.dbapi.connect(
-                host=os.getenv('PRESTO_HOST'),
-                port=int(os.getenv('PRESTO_PORT')),
-                user=os.getenv('PRESTO_USER'),
-                catalog=os.getenv('PRESTO_CATALOG'),
-                schema=os.getenv('PRESTO_SCHEMA'),
-                http_scheme='https',
-                auth=prestodb.auth.BasicAuthentication(
-                    os.getenv('PRESTO_USER'), 
-                    os.getenv('PRESTO_PASSWD')
-                )
-            )
-            self.presto_connection._http_session.verify = "/certs/presto.crt"
+    def connect_to_databases(self):
+        """Establish connections to both Cassandra and Presto"""
+        try:
+            # Connect to Cassandra for services table management
+            self.cassandra_connection = CassandraConnection()
+            self.cassandra_session = self.cassandra_connection.connect()
             
-            logger.info(f"Connected to Presto at {os.getenv('PRESTO_HOST')}:{os.getenv('PRESTO_PORT')}")
+            # Initialize services manager
+            self.services_manager = ServicesManager(
+                self.cassandra_session, 
+                "presto_cleanup", 
+                "Data cleanup service for Presto tables"
+            )
+            
+            # Connect to Presto
+            self.presto_conn = PrestoConnection()
+            self.presto_connection = self.presto_conn.connect()
+            
+            # Ensure Presto schema exists
+            SchemaExecutor.execute_presto_schema(self.script_dir, self.presto_connection)
+            
+            logger.info("Connected to all databases successfully")
             
         except Exception as e:
-            logger.error(f"Failed to connect to Presto: {e}")
+            logger.error(f"Failed to connect to databases: {e}")
             sys.exit(1)
     
     def cleanup_old_data(self):
@@ -65,6 +63,10 @@ class AffiliateJunctionDataCleanup:
         cutoff_timestamp = cutoff_time.strftime('%Y-%m-%d %H:%M:%S')
         
         logger.info(f"Deleting data older than: {cutoff_timestamp} UTC")
+        
+        # Track statistics for this iteration
+        iteration_stats = {}
+        cleanup_start_time = time.time()
         
         try:
             cursor = self.presto_connection.cursor()
@@ -102,7 +104,17 @@ class AffiliateJunctionDataCleanup:
                 logger.info("Conversion tracking cleanup completed (result not available)")
             
             cursor.close()
+            
+            # Record execution time for stats
+            execution_time = time.time() - cleanup_start_time
+            current_timestamp = datetime.now(timezone.utc).isoformat()
+            
+            iteration_stats['cleanup_execution_time_seconds'] = [current_timestamp, execution_time]
+            iteration_stats['cleanup_cutoff_hours'] = [current_timestamp, 24]
+            
             logger.info(f"Data cleanup completed successfully for data older than {cutoff_timestamp}")
+            
+            return iteration_stats
             
         except Exception as e:
             logger.error(f"Error during data cleanup: {e}")
@@ -125,18 +137,27 @@ class AffiliateJunctionDataCleanup:
             
             logger.info(f"Current table counts - Impressions: {impression_count}, Conversions: {conversion_count}")
             
-            return impression_count, conversion_count
+            # Create stats for services table
+            current_timestamp = datetime.now(timezone.utc).isoformat()
+            count_stats = {
+                'impression_records_count': [current_timestamp, impression_count],
+                'conversion_records_count': [current_timestamp, conversion_count]
+            }
+            
+            return impression_count, conversion_count, count_stats
             
         except Exception as e:
             logger.error(f"Error getting table counts: {e}")
-            return None, None
+            return None, None, {}
     
     def cleanup(self):
         """Clean up connections"""
         try:
-            if self.presto_connection:
-                self.presto_connection.close()
-                logger.info("Presto connection closed")
+            if self.presto_conn:
+                self.presto_conn.close()
+            if self.cassandra_connection:
+                self.cassandra_connection.close()
+            logger.info("All connections closed")
                 
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
@@ -146,8 +167,11 @@ class AffiliateJunctionDataCleanup:
         try:
             logger.info("Starting Affiliate Junction Data Cleanup Service")
             
-            # Initialize connection
-            self.connect_to_presto()
+            # Initialize connections
+            self.connect_to_databases()
+            
+            # Check for service record and configuration
+            service_record = self.services_manager.poll_services_table()
             
             logger.info("Entering main cleanup loop (runs every 300 seconds)...")
             
@@ -157,21 +181,40 @@ class AffiliateJunctionDataCleanup:
                     iteration_start = time.time()
                     
                     # Get current table counts before cleanup
-                    pre_impression_count, pre_conversion_count = self.get_table_counts()
+                    pre_impression_count, pre_conversion_count, pre_count_stats = self.get_table_counts()
                     
-                    # Perform cleanup
-                    self.cleanup_old_data()
+                    # Perform cleanup and collect stats
+                    cleanup_stats = self.cleanup_old_data()
                     
                     # Get table counts after cleanup
-                    post_impression_count, post_conversion_count = self.get_table_counts()
+                    post_impression_count, post_conversion_count, post_count_stats = self.get_table_counts()
                     
-                    # Log the difference if counts are available
+                    # Calculate and log the difference if counts are available
+                    iteration_stats = {}
                     if pre_impression_count is not None and post_impression_count is not None:
                         deleted_impressions = pre_impression_count - post_impression_count
                         deleted_conversions = pre_conversion_count - post_conversion_count
                         logger.info(f"Records deleted - Impressions: {deleted_impressions}, Conversions: {deleted_conversions}")
+                        
+                        # Add deletion stats
+                        current_timestamp = datetime.now(timezone.utc).isoformat()
+                        iteration_stats.update({
+                            'impressions_deleted_count': [current_timestamp, deleted_impressions],
+                            'conversions_deleted_count': [current_timestamp, deleted_conversions]
+                        })
+                    
+                    # Combine all stats
+                    iteration_stats.update(cleanup_stats)
+                    iteration_stats.update(post_count_stats)
                     
                     execution_time = time.time() - iteration_start
+                    current_timestamp = datetime.now(timezone.utc).isoformat()
+                    iteration_stats['total_execution_time_seconds'] = [current_timestamp, execution_time]
+                    
+                    # Update services table with stats
+                    if iteration_stats:
+                        self.services_manager.update_timeseries_stats(iteration_stats)
+                        self.services_manager.update_service_stats()
                     
                     logger.info(f"Cleanup cycle completed in {execution_time:.2f} seconds. Sleeping for 300 seconds...")
                     time.sleep(300)  # Sleep for 300 seconds (5 minutes)

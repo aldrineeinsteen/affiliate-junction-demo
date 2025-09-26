@@ -259,6 +259,54 @@ def get_advertiser_chart_endpoint(advertiser_id: str):
             )
 
 
+# --- Services Settings API endpoint ---
+@app.put("/api/services/{service_name}/settings")
+async def update_service_settings(service_name: str, settings: dict):
+    """Update settings for a specific service"""
+    with cassandra_wrapper.request_context():
+        try:
+            # Convert settings dict to JSON string
+            import json
+            settings_json = json.dumps(settings)
+            
+            # Get Cassandra session
+            cassandra_session = hcd_operations.get_cassandra_session()
+            
+            # Update the settings in the database
+            query = """
+                UPDATE affiliate_junction.services 
+                SET settings = %s, last_updated = toUnixTimestamp(now()) 
+                WHERE name = %s
+            """
+            cassandra_session.execute(query, (settings_json, service_name))
+            
+            # Get query metrics for this request
+            query_metrics = cassandra_wrapper.get_request_queries()
+            logger.info(f"Service settings update metrics: {query_metrics}")
+            
+            return {
+                "message": "Settings updated successfully",
+                "service_name": service_name,
+                "settings": settings,
+                "query_metrics": query_metrics
+            }
+            
+        except Exception as e:
+            logger.error(f"Error updating service settings: {e}")
+            
+            # Still get query metrics even if there was an error
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Failed to update service settings",
+                    "detail": str(e),
+                    "query_metrics": query_metrics
+                }
+            )
+
+
 # --- Advertiser Dashboard UI endpoint ---
 @app.get("/advertiser/{advertiser_id}", response_class=HTMLResponse)
 def advertiser_dashboard(request: Request, advertiser_id: str):
@@ -292,12 +340,23 @@ def services_dashboard(request: Request):
                         logger.warning(f"Failed to parse stats JSON for service {row.name}: {e}")
                         parsed_stats = None
                 
+                # Parse the settings JSON if it exists
+                parsed_settings = {}
+                if row.settings:
+                    try:
+                        import json
+                        parsed_settings = json.loads(row.settings)
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.warning(f"Failed to parse settings JSON for service {row.name}: {e}")
+                        parsed_settings = {}
+                
                 services.append({
                     'name': row.name,
                     'description': row.description,
                     'last_updated': row.last_updated,
                     'stats': row.stats,
                     'settings': row.settings,
+                    'parsed_settings': parsed_settings,
                     'parsed_stats': parsed_stats
                 })
             

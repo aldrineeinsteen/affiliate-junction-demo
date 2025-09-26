@@ -5,15 +5,13 @@ import sys
 import time
 import logging
 import random
-import subprocess
 import uuid
 import json
 from datetime import datetime, timezone, date
-from dotenv import load_dotenv
-from cassandra.cluster import Cluster, ExecutionProfile
-from cassandra.auth import PlainTextAuthProvider
-from cassandra.policies import DCAwareRoundRobinPolicy
 from cassandra.util import uuid_from_time
+
+# Import shared modules
+from affiliate_common import CassandraConnection, ServicesManager, SchemaExecutor
 
 # Configure logging
 logging.basicConfig(
@@ -25,9 +23,11 @@ logger = logging.getLogger(__name__)
 
 class SyntheticTrafficGenerator:
     def __init__(self):
+        self.cassandra_connection = None
         self.cassandra_session = None
+        self.services_manager = None
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
-        self.load_environment()
+        ServicesManager.load_environment()
         
         # Store current settings for comparison
         self.current_settings = {
@@ -64,114 +64,14 @@ class SyntheticTrafficGenerator:
         
         logger.info(f"Generated {len(self.advertisers)} advertisers, {len(self.publishers)} publishers, and {len(self.cookie_ids)} cookie IDs")
         
-    def load_environment(self):
-        """Load environment variables from .env file"""
-        try:
-            load_dotenv()
-            logger.info("Environment variables loaded successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to load environment variables: {e}")
-            sys.exit(1)
-    
     def execute_schema(self):
         """Execute the Cassandra schema file to create keyspace and tables"""
         try:
-            schema_file_path = os.path.join(self.script_dir, 'hcd_schema.cql')
-            
-            if not os.path.exists(schema_file_path):
-                logger.error(f"Schema file not found at: {schema_file_path}")
-                raise FileNotFoundError(f"Schema file not found: {schema_file_path}")
-            
-            logger.info(f"Executing schema file: {schema_file_path}")
-            
-            # First try using cqlsh
-            try:
-                self._execute_schema_with_cqlsh(schema_file_path)
-                return
-            except Exception as e:
-                logger.warning(f"cqlsh execution failed: {e}. Trying direct Cassandra session approach...")
-            
-            # Fallback to direct Cassandra session execution
-            self._execute_schema_with_session(schema_file_path)
+            SchemaExecutor.execute_cassandra_schema(self.script_dir, self.cassandra_session)
                 
         except Exception as e:
             logger.error(f"Failed to execute schema: {e}")
             raise
-    
-    def _execute_schema_with_cqlsh(self, schema_file_path):
-        """Execute schema using cqlsh command"""
-        # Build cqlsh command
-        cmd = ['cqlsh']
-        
-        # Add host and port
-        cmd.extend(['-e', f"SOURCE '{schema_file_path}';"])
-        cmd.extend([os.getenv('HCD_HOST', 'localhost')])
-        cmd.append(str(os.getenv('HCD_PORT', '9042')))
-        
-        # Add authentication if provided
-        if os.getenv('HCD_USER') and os.getenv('HCD_PASSWD'):
-            cmd.extend(['-u', os.getenv('HCD_USER')])
-            cmd.extend(['-p', os.getenv('HCD_PASSWD')])
-        
-        # Execute the command
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        
-        if result.returncode == 0:
-            logger.info("Schema executed successfully with cqlsh")
-            if result.stdout:
-                logger.debug(f"cqlsh output: {result.stdout}")
-        else:
-            logger.error(f"cqlsh execution failed with return code {result.returncode}")
-            if result.stderr:
-                logger.error(f"cqlsh error: {result.stderr}")
-            raise RuntimeError(f"cqlsh execution failed: {result.stderr}")
-    
-    def _execute_schema_with_session(self, schema_file_path):
-        """Execute schema using direct Cassandra session"""
-        logger.info("Executing schema using direct Cassandra session")
-        
-        # Create a temporary connection just for schema execution
-        auth_provider = None
-        if os.getenv('HCD_USER') and os.getenv('HCD_PASSWD'):
-            auth_provider = PlainTextAuthProvider(
-                username=os.getenv('HCD_USER'),
-                password=os.getenv('HCD_PASSWD')
-            )
-        
-        profile = ExecutionProfile(
-            load_balancing_policy=DCAwareRoundRobinPolicy(local_dc=os.getenv('HCD_DATACENTER')),
-            request_timeout=10
-        )
-        
-        cluster = Cluster(
-            [os.getenv('HCD_HOST', 'localhost')],
-            port=int(os.getenv('HCD_PORT', '9042')),
-            auth_provider=auth_provider,
-            protocol_version=5,
-            execution_profiles={'default': profile}
-        )
-        
-        temp_session = cluster.connect()
-        
-        try:
-            # Read and execute the schema file
-            with open(schema_file_path, 'r') as f:
-                schema_content = f.read()
-            
-            # Split statements by semicolon and execute each one
-            statements = [stmt.strip() for stmt in schema_content.split(';') if stmt.strip()]
-            
-            for statement in statements:
-                if statement:
-                    logger.debug(f"Executing statement: {statement[:100]}...")
-                    temp_session.execute(statement)
-            
-            logger.info("Schema executed successfully with direct session")
-            
-        finally:
-            temp_session.shutdown()
-            cluster.shutdown()
     
     def get_random_cookie_id(self):
         """Get a random cookie ID from the predefined pool"""
@@ -180,37 +80,20 @@ class SyntheticTrafficGenerator:
     def connect_to_cassandra(self):
         """Establish connection to Cassandra cluster"""
         try:
-            auth_provider = None
-            if os.getenv('HCD_USER') and os.getenv('HCD_PASSWD'):
-                auth_provider = PlainTextAuthProvider(
-                    username=os.getenv('HCD_USER'),
-                    password=os.getenv('HCD_PASSWD')
-                )
-                      
-            # Create execution profile with timeout settings
-            profile = ExecutionProfile(
-                load_balancing_policy=DCAwareRoundRobinPolicy(local_dc=os.getenv('HCD_DATACENTER')),
-                request_timeout=10
-            )
-            
-            cluster = Cluster(
-                [os.getenv('HCD_HOST', 'localhost')],
-                port=int(os.getenv('HCD_PORT', '9042')),
-                auth_provider=auth_provider,
-                protocol_version=5,
-                execution_profiles={'default': profile}
-            )
-            
-            self.cassandra_session = cluster.connect()
-            
-            # Set keyspace if specified
-            if os.getenv('HCD_KEYSPACE'):
-                self.cassandra_session.set_keyspace(os.getenv('HCD_KEYSPACE'))
+            self.cassandra_connection = CassandraConnection()
+            self.cassandra_session = self.cassandra_connection.connect()
             
             # Prepare statements for data insertion
             self.prepare_statements()
             
-            logger.info(f"Connected to Cassandra cluster at {os.getenv('HCD_HOST', 'localhost')}:{os.getenv('HCD_PORT', '9042')}")
+            # Initialize services manager after connecting
+            self.services_manager = ServicesManager(
+                self.cassandra_session, 
+                'generate_traffic',
+                'Synthetic traffic generation service'
+            )
+            
+            logger.info("Connected to Cassandra cluster")
             
         except Exception as e:
             logger.error(f"Failed to connect to Cassandra: {e}")
@@ -252,20 +135,9 @@ class SyntheticTrafficGenerator:
     def poll_services_table(self):
         """Poll the services table to check for configuration updates"""
         try:
-            # Query for the generate_traffic service record
-            query = f"SELECT name, description, last_updated, settings FROM {os.getenv('HCD_KEYSPACE')}.services WHERE name = 'generate_traffic'"
-            result = self.cassandra_session.execute(query)
-            
-            service_record = result.one()
-            
+            service_record = self.services_manager.poll_services_table()
             if service_record:
-                # Service record exists, check if settings have changed
-                logger.debug("Found existing generate_traffic service record")
                 self.update_settings_from_service(service_record)
-            else:
-                # No service record exists, insert a new one
-                logger.info("No generate_traffic service record found, inserting new record")
-                self.insert_service_record()
                 
         except Exception as e:
             logger.error(f"Failed to poll services table: {e}")
@@ -274,22 +146,7 @@ class SyntheticTrafficGenerator:
     def insert_service_record(self):
         """Insert a new service record with default settings from .env"""
         try:
-            settings_json = json.dumps(self.current_settings)
-            
-            insert_query = f"""
-                INSERT INTO {os.getenv('HCD_KEYSPACE')}.services (name, description, last_updated, settings, stats)
-                VALUES (%s, %s, %s, %s, %s)
-            """
-            
-            self.cassandra_session.execute(insert_query, [
-                'generate_traffic',
-                'Synthetic traffic generator service',
-                datetime.now(timezone.utc),
-                settings_json,
-                '{}'  # Empty stats JSON object
-            ])
-            
-            logger.info("Successfully inserted new generate_traffic service record")
+            self.services_manager.insert_service_record(self.current_settings)
             
         except Exception as e:
             logger.error(f"Failed to insert service record: {e}")
@@ -367,16 +224,7 @@ class SyntheticTrafficGenerator:
     def update_timeseries_stats(self, iteration_stats):
         """Update timeseries data with new stats, maintaining 90 datapoints"""
         try:
-            for metric_name, (timestamp, value) in iteration_stats.items():
-                if metric_name in self.stats_timeseries:
-                    # Add new datapoint
-                    self.stats_timeseries[metric_name].append([timestamp, value])
-                    
-                    # Maintain only the most recent 90 datapoints
-                    if len(self.stats_timeseries[metric_name]) > 90:
-                        self.stats_timeseries[metric_name] = self.stats_timeseries[metric_name][-90:]
-            
-            logger.debug(f"Updated timeseries stats with {len(iteration_stats)} metrics")
+            self.services_manager.update_timeseries_stats(iteration_stats)
             
         except Exception as e:
             logger.error(f"Failed to update timeseries stats: {e}")
@@ -384,23 +232,7 @@ class SyntheticTrafficGenerator:
     def update_service_stats(self):
         """Update the services table with current stats"""
         try:
-            # Serialize stats as JSON
-            stats_json = json.dumps(self.stats_timeseries)
-            
-            # Update the service record with new stats
-            update_query = f"""
-                UPDATE {os.getenv('HCD_KEYSPACE')}.services 
-                SET stats = %s, last_updated = %s
-                WHERE name = %s
-            """
-            
-            self.cassandra_session.execute(update_query, [
-                stats_json,
-                datetime.now(timezone.utc),
-                'generate_traffic'
-            ])
-            
-            logger.debug("Successfully updated service stats")
+            self.services_manager.update_service_stats()
             
         except Exception as e:
             logger.error(f"Failed to update service stats: {e}")
@@ -507,6 +339,29 @@ class SyntheticTrafficGenerator:
         # Return data for stats collection
         return impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data
     
+    def execute_batch_in_chunks(self, data, prepared_statement, param_extractor, batch_size=10000, operation_name="records"):
+        """Execute batch operations in chunks to avoid Cassandra batch size limits"""
+        from cassandra.query import BatchStatement, BatchType
+        
+        if not data:
+            return
+            
+        total_records = len(data)
+        logger.info(f"Processing {total_records} {operation_name} in chunks of {batch_size}...")
+        
+        # Process data in chunks
+        for i in range(0, total_records, batch_size):
+            chunk = data[i:i + batch_size]
+            
+            # Create batch statement for this chunk
+            batch = BatchStatement(batch_type=BatchType.UNLOGGED)
+            for record in chunk:
+                batch.add(prepared_statement, param_extractor(record))
+            
+            # Execute the batch
+            self.cassandra_session.execute(batch)
+            logger.info(f"Batch inserted {len(chunk)} {operation_name} (chunk {i//batch_size + 1}/{(total_records + batch_size - 1)//batch_size})")
+
     def insert_data_to_cassandra(self, impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data):
         """Insert data into Cassandra using batch operations with dual write pattern"""
         try:
@@ -515,77 +370,69 @@ class SyntheticTrafficGenerator:
             # Use batch operations for better performance
             from cassandra.query import BatchStatement, BatchType
             
-            # Create batch statement for impression tracking data
+            # Insert impression tracking data using chunked batches
             if impression_data:
-                impression_batch = BatchStatement(batch_type=BatchType.UNLOGGED)
-                for record in impression_data:
-                    impression_batch.add(
-                        self.impression_insert_stmt,
-                        [
-                            record['publishers_id'],
-                            record['cookie_id'],
-                            record['timestamp'],
-                            record['advertisers_id'],
-                            record['impressions']
-                        ]
-                    )
-                self.cassandra_session.execute(impression_batch)
-                logger.info(f"Batch inserted {len(impression_data)} impression records")
+                self.execute_batch_in_chunks(
+                    impression_data,
+                    self.impression_insert_stmt,
+                    lambda record: [
+                        record['publishers_id'],
+                        record['cookie_id'],
+                        record['timestamp'],
+                        record['advertisers_id'],
+                        record['impressions']
+                    ],
+                    operation_name="impression tracking records"
+                )
             
-            # Create batch statement for impressions_by_minute data (dual write pattern)
+            # Insert impressions_by_minute data using chunked batches (dual write pattern)
             if impressions_by_minute_data:
-                impressions_minute_batch = BatchStatement(batch_type=BatchType.UNLOGGED)
-                for record in impressions_by_minute_data:
-                    impressions_minute_batch.add(
-                        self.impressions_by_minute_insert_stmt,
-                        [
-                            record['bucket_date'],
-                            record['bucket'],
-                            record['ts'],
-                            record['publishers_id'],
-                            record['advertisers_id'],
-                            record['cookie_id'],
-                            record['impression_id']
-                        ]
-                    )
-                self.cassandra_session.execute(impressions_minute_batch)
-                logger.info(f"Batch inserted {len(impressions_by_minute_data)} impressions_by_minute records")
+                self.execute_batch_in_chunks(
+                    impressions_by_minute_data,
+                    self.impressions_by_minute_insert_stmt,
+                    lambda record: [
+                        record['bucket_date'],
+                        record['bucket'],
+                        record['ts'],
+                        record['publishers_id'],
+                        record['advertisers_id'],
+                        record['cookie_id'],
+                        record['impression_id']
+                    ],
+                    operation_name="impressions_by_minute records"
+                )
             
-            # Create batch statement for conversion tracking data
+            # Insert conversion tracking data using chunked batches
             if conversion_data:
-                conversion_batch = BatchStatement(batch_type=BatchType.UNLOGGED)
-                for record in conversion_data:
-                    conversion_batch.add(
-                        self.conversion_insert_stmt,
-                        [
-                            record['advertisers_id'],
-                            record['timestamp'],
-                            record['cookie_id']
-                        ]
-                    )
-                self.cassandra_session.execute(conversion_batch)
-                logger.info(f"Batch inserted {len(conversion_data)} conversion records")
+                self.execute_batch_in_chunks(
+                    conversion_data,
+                    self.conversion_insert_stmt,
+                    lambda record: [
+                        record['advertisers_id'],
+                        record['timestamp'],
+                        record['cookie_id']
+                    ],
+                    operation_name="conversion tracking records"
+                )
             
-            # Create batch statement for conversions_by_minute data (dual write pattern)
+            # Insert conversions_by_minute data using chunked batches (dual write pattern)
             if conversions_by_minute_data:
-                conversions_minute_batch = BatchStatement(batch_type=BatchType.UNLOGGED)
-                for record in conversions_by_minute_data:
-                    conversions_minute_batch.add(
-                        self.conversions_by_minute_insert_stmt,
-                        [
-                            record['bucket_date'],
-                            record['bucket'],
-                            record['ts'],
-                            record['publishers_id'],
-                            record['advertisers_id'],
-                            record['cookie_id'],
-                            record['conversion_id']
-                        ]
-                    )
-                self.cassandra_session.execute(conversions_minute_batch)
-                logger.info(f"Batch inserted {len(conversions_by_minute_data)} conversions_by_minute records")
+                self.execute_batch_in_chunks(
+                    conversions_by_minute_data,
+                    self.conversions_by_minute_insert_stmt,
+                    lambda record: [
+                        record['bucket_date'],
+                        record['bucket'],
+                        record['ts'],
+                        record['publishers_id'],
+                        record['advertisers_id'],
+                        record['cookie_id'],
+                        record['conversion_id']
+                    ],
+                    operation_name="conversions_by_minute records"
+                )
             
-            logger.info(f"Successfully batch inserted {len(impression_data)} impression records, {len(impressions_by_minute_data)} impressions_by_minute records, {len(conversion_data)} conversion records, and {len(conversions_by_minute_data)} conversions_by_minute records")
+            logger.info(f"Successfully inserted all data: {len(impression_data)} impression records, {len(impressions_by_minute_data)} impressions_by_minute records, {len(conversion_data)} conversion records, and {len(conversions_by_minute_data)} conversions_by_minute records")
             
         except Exception as e:
             logger.error(f"Failed to insert data to Cassandra: {e}")
@@ -594,8 +441,8 @@ class SyntheticTrafficGenerator:
     def cleanup(self):
         """Clean up connections"""
         try:
-            if self.cassandra_session:
-                self.cassandra_session.shutdown()
+            if self.cassandra_connection:
+                self.cassandra_connection.close()
                 logger.info("Cassandra connection closed")
                 
         except Exception as e:
