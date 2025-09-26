@@ -268,7 +268,7 @@ class AffiliateJunctionInsights:
                 # Insert new record
                 insert_query = f"""
                 INSERT INTO {table_name} ({id_column}, impressions, conversions, last_updated)
-                VALUES (%s, %s, %s, %s)
+                VALUES (?, ?, ?, ?)
                 """
                 
                 # Create JSON for new impressions list
