@@ -277,7 +277,7 @@ def services_dashboard(request: Request):
         try:
             # Query the services table
             cassandra_session = hcd_operations.get_cassandra_session()
-            query = "SELECT name, description, last_updated, stats, settings FROM affiliate_junction.services ORDER BY name ASC"
+            query = "SELECT name, description, last_updated, stats, settings FROM affiliate_junction.services"
             result = cassandra_session.execute(query)
             
             services = []
@@ -300,6 +300,9 @@ def services_dashboard(request: Request):
                     'settings': row.settings,
                     'parsed_stats': parsed_stats
                 })
+            
+            # Sort alphabetically by name in Python
+            services.sort(key=lambda x: x['name'])
             
             # Create JSON representation for JavaScript
             import json

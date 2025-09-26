@@ -90,24 +90,6 @@
                 </div>
               </div>
 
-              <!-- Service Settings Card -->
-              {% if service.settings %}
-              <div class="row mt-3">
-                <div class="col-md-12">
-                  <div class="card">
-                    <div class="card-header">
-                      <h5 class="card-title mb-0">
-                        <i class="bi bi-sliders"></i> Configuration
-                      </h5>
-                    </div>
-                    <div class="card-body">
-                      <pre class="settings-json">{{ service.settings }}</pre>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              {% endif %}
-
               <!-- Service Metrics Card -->
               {% if service.parsed_stats %}
               <div class="row mt-3">
@@ -121,15 +103,47 @@
                     <div class="card-body">
                       <div class="row metrics-container">
                         {% for metric_name, metric_data in service.parsed_stats.items() %}
-                        <div class="col-md-6 col-lg-4 mb-4">
-                          <div class="metric-card">
-                            <h6 class="metric-title">{{ metric_name|replace('_', ' ')|title }}</h6>
-                            <canvas id="chart-{{ service.name }}-{{ metric_name }}" 
-                                    class="metric-chart"></canvas>
+                        <div class="col-md-6 mb-4">
+                          <div class="metric-card border position-relative">
+                            <div class="metric-card-body">
+                              <div class="row align-items-center">
+                                <div class="col-6">
+                                  <h6 class="metric-title mb-0">{{ metric_name|replace('_', ' ')|title }}</h6>
+                                </div>
+                                <div class="col-6 text-end">
+                                  <span class="metric-value" id="value-{{ service.name }}-{{ metric_name }}">-</span>
+                                </div>
+                              </div>
+                            </div>
+                            <!-- Sparkline Chart -->
+                            <div class="metric-sparkline">
+                              <canvas id="chart-{{ service.name }}-{{ metric_name }}" 
+                                      class="metric-chart w-100" 
+                                      width="100" 
+                                      height="30"></canvas>
+                            </div>
                           </div>
                         </div>
                         {% endfor %}
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {% endif %}
+
+              <!-- Service Settings Card -->
+              {% if service.settings %}
+              <div class="row mt-3">
+                <div class="col-md-12">
+                  <div class="card">
+                    <div class="card-header">
+                      <h5 class="card-title mb-0">
+                        <i class="bi bi-sliders"></i> Configuration
+                      </h5>
+                    </div>
+                    <div class="card-body">
+                      <pre class="settings-json">{{ service.settings }}</pre>
                     </div>
                   </div>
                 </div>

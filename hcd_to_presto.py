@@ -13,7 +13,7 @@ from cassandra.cluster import Cluster, ExecutionProfile
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.policies import DCAwareRoundRobinPolicy
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import *
+from pyspark.sql.functions import count, lit
 
 
 # Configure logging
@@ -267,17 +267,25 @@ class AffiliateJunctionETL:
             
             logger.info(f"Found {len(all_impressions)} raw impression records for minute: {previous_minute}")
             
-            impressions_df = self.spark.createDataFrame(all_impressions)
-            
-            # Aggregate by publishers_id, advertisers_id, cookie_id to count impressions
-            # Multiple records for the same combo within the time period should be counted
-            # Include bucket_date in groupBy since all records should have the same bucket_date
-            final_df = impressions_df.groupBy("publishers_id", "advertisers_id", "cookie_id", "bucket_date") \
-                .agg(count("*").alias("impressions")) \
-                .withColumnRenamed("bucket_date", "timestamp")
-            
-            impressions_aggregated = final_df.count()
-            logger.info(f"Aggregated to {impressions_aggregated} unique publisher-advertiser-cookie combinations")
+            # Only proceed with Spark operations if we have data
+            try:
+                impressions_df = self.spark.createDataFrame(all_impressions)
+                
+                # Aggregate by publishers_id, advertisers_id, cookie_id to count impressions
+                # Multiple records for the same combo within the time period should be counted
+                # Include bucket_date in groupBy since all records should have the same bucket_date
+                final_df = impressions_df.groupBy("publishers_id", "advertisers_id", "cookie_id", "bucket_date") \
+                    .agg(count(lit(1)).alias("impressions")) \
+                    .withColumnRenamed("bucket_date", "timestamp")
+                
+                impressions_aggregated = final_df.count()
+                logger.info(f"Aggregated to {impressions_aggregated} unique publisher-advertiser-cookie combinations")
+            except Exception as spark_error:
+                logger.error(f"Error in Spark operations: {spark_error}")
+                logger.error(f"Sample data: {all_impressions[0] if all_impressions else 'No data'}")
+                # Return early on Spark errors
+                rollup_time = time.time() - rollup_start_time
+                return impressions_processed, 0, 0, rollup_time
             
             impressions_batches = 0
             # Write aggregated data to Presto impression_tracking table

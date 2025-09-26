@@ -29,6 +29,18 @@ class AffiliateJunctionInsights:
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
         self.load_environment()
         
+        # Initialize stats tracking with timeseries data structure
+        self.stats_timeseries = {
+            'publishers_processed': [],
+            'advertisers_processed': [],
+            'publisher_impressions_total': [],
+            'advertiser_impressions_total': [],
+            'execution_time_seconds': [],
+            'publisher_processing_time': [],
+            'advertiser_processing_time': [],
+            'presto_queries_executed': []
+        }
+        
     def load_environment(self):
         """Load environment variables from .env file"""
         try:
@@ -98,6 +110,51 @@ class AffiliateJunctionInsights:
         except Exception as e:
             logger.error(f"Failed to connect to Cassandra: {e}")
             sys.exit(1)
+    
+    def poll_services_table(self):
+        """Poll the services table to check for configuration updates"""
+        try:
+            # Query for the presto_to_hcd service record
+            query = f"SELECT name, description, last_updated, settings FROM {os.getenv('HCD_KEYSPACE')}.services WHERE name = 'presto_to_hcd'"
+            result = self.cassandra_session.execute(query)
+            
+            service_record = result.one()
+            
+            if service_record:
+                # Service record exists
+                logger.debug("Found existing presto_to_hcd service record")
+            else:
+                # No service record exists, insert a new one
+                logger.info("No presto_to_hcd service record found, inserting new record")
+                self.insert_service_record()
+                
+        except Exception as e:
+            logger.error(f"Failed to poll services table: {e}")
+            # Continue with current settings if polling fails
+    
+    def insert_service_record(self):
+        """Insert a new service record with empty settings"""
+        try:
+            # Empty settings dict as specified
+            settings_json = json.dumps({})
+            
+            insert_query = f"""
+                INSERT INTO {os.getenv('HCD_KEYSPACE')}.services (name, description, last_updated, settings, stats)
+                VALUES (%s, %s, %s, %s, %s)
+            """
+            
+            self.cassandra_session.execute(insert_query, [
+                'presto_to_hcd',
+                'Insights service for transferring analytics from Presto to HCD entity tables',
+                datetime.now(timezone.utc),
+                settings_json,
+                '{}'  # Empty stats JSON object
+            ])
+            
+            logger.info("Successfully inserted new presto_to_hcd service record")
+            
+        except Exception as e:
+            logger.error(f"Failed to insert service record: {e}")
     
     def process_entity_impressions(self, target_minute, entity_type='publishers'):
         """

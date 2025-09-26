@@ -48,6 +48,8 @@ function initializeServiceCharts(service) {
         
         if (canvas) {
             createMetricChart(canvas, metricName, metricData);
+            // Update the metric value display
+            updateMetricValue(service.name, metricName, metricData);
         } else {
             console.warn(`Canvas not found for chart ID: ${chartId}`);
         }
@@ -86,6 +88,26 @@ function createMetricChart(canvas, metricName, metricData) {
 }
 
 /**
+ * Update metric value display
+ * @param {string} serviceName - Name of the service
+ * @param {string} metricName - Name of the metric
+ * @param {Array} metricData - Array of [timestamp, value] pairs
+ */
+function updateMetricValue(serviceName, metricName, metricData) {
+    const valueElementId = `value-${serviceName}-${metricName}`;
+    const valueElement = document.getElementById(valueElementId);
+    
+    if (valueElement && metricData && metricData.length > 0) {
+        // Get the latest value (last item in the sorted array)
+        const sortedData = metricData.sort((a, b) => a[0] - b[0]);
+        const latestValue = sortedData[sortedData.length - 1][1];
+        
+        // Format and display the value
+        valueElement.textContent = formatValue(latestValue, metricName);
+    }
+}
+
+/**
  * Process raw metric data into Chart.js format
  * @param {Array} rawData - Array of [timestamp, value] pairs
  * @returns {Object} Processed data with labels and values
@@ -102,9 +124,16 @@ function processMetricData(rawData) {
     const values = [];
     
     sortedData.forEach(([timestamp, value]) => {
-        // Convert Unix timestamp to readable time
+        // Convert Unix timestamp to readable time with more detail
         const date = new Date(timestamp * 1000);
-        labels.push(date.toLocaleTimeString());
+        const timeString = date.toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+        labels.push(timeString);
         values.push(parseFloat(value) || 0);
     });
     
@@ -130,11 +159,14 @@ function getChartConfiguration(metricName, chartData) {
                 borderWidth: 2,
                 fill: true,
                 tension: 0.4,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointBorderWidth: 0,
+                pointHoverBorderWidth: 2,
                 pointBackgroundColor: getMetricColor(metricName),
+                pointHoverBackgroundColor: getMetricColor(metricName),
                 pointBorderColor: '#fff',
-                pointBorderWidth: 2,
-                pointRadius: 4,
-                pointHoverRadius: 6
+                pointHoverBorderColor: '#fff'
             }]
         },
         options: {
@@ -142,28 +174,11 @@ function getChartConfiguration(metricName, chartData) {
             maintainAspectRatio: false,
             scales: {
                 y: {
-                    beginAtZero: true,
-                    grid: {
-                        color: 'rgba(0,0,0,0.1)'
-                    },
-                    ticks: {
-                        color: '#6c757d',
-                        font: {
-                            size: 11
-                        }
-                    }
+                    display: false,
+                    beginAtZero: false
                 },
                 x: {
-                    grid: {
-                        color: 'rgba(0,0,0,0.1)'
-                    },
-                    ticks: {
-                        color: '#6c757d',
-                        font: {
-                            size: 11
-                        },
-                        maxTicksLimit: 6
-                    }
+                    display: false
                 }
             },
             plugins: {
@@ -171,19 +186,30 @@ function getChartConfiguration(metricName, chartData) {
                     display: false
                 },
                 tooltip: {
+                    enabled: true,
                     backgroundColor: 'rgba(0,0,0,0.8)',
                     titleColor: '#fff',
                     bodyColor: '#fff',
                     borderColor: getMetricColor(metricName),
                     borderWidth: 1,
                     displayColors: false,
+                    cornerRadius: 6,
+                    caretPadding: 8,
+                    titleFont: {
+                        size: 12,
+                        weight: 'bold'
+                    },
+                    bodyFont: {
+                        size: 11
+                    },
                     callbacks: {
                         title: function(tooltipItems) {
+                            // Show the time
                             return tooltipItems[0].label;
                         },
                         label: function(context) {
                             const value = context.parsed.y;
-                            return `${context.dataset.label}: ${formatValue(value, metricName)}`;
+                            return `${formatValue(value, metricName)}`;
                         }
                     }
                 }
@@ -191,17 +217,18 @@ function getChartConfiguration(metricName, chartData) {
             interaction: {
                 intersect: false,
                 mode: 'index'
+            },
+            onHover: (event, elements) => {
+                event.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+            },
+            elements: {
+                point: {
+                    radius: 0,
+                    hoverRadius: 4
+                }
             }
         }
     };
-    
-    // Special configurations for specific metric types
-    if (metricName.includes('percent') || metricName.includes('rate')) {
-        config.options.scales.y.max = 100;
-        config.options.scales.y.ticks.callback = function(value) {
-            return value + '%';
-        };
-    }
     
     return config;
 }
