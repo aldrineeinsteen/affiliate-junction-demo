@@ -21,7 +21,20 @@
 <div class="mt-4 p-3 bg-white border rounded" _style="height:90vh;">
   <h5>Publisher</h5>
 
-  <div class="alert alert-info">TODO.  Will largely mirror the advertiser view</div>
+  <div class="mb-3">
+    View real-time and analytic data using the Publisher persona.
+  </div>
+    
+  <nav class="nav flex-column">
+    <!-- Publishers dropdown -->
+    <div class="mb-3">
+      <label for="publishersSelect" class="form-label">Select Publisher:</label>
+      <select class="form-select" id="publishersSelect" onchange="onPublisherChange()">
+        <option value="">Loading publishers...</option>
+      </select>
+    </div>
+
+  </nav>
 </div>
 
 <div class="mt-4 p-3 bg-white border rounded" _style="height:90vh;">

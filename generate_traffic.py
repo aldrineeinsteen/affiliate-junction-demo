@@ -230,9 +230,16 @@ class SyntheticTrafficGenerator:
             logger.error(f"Failed to update timeseries stats: {e}")
     
     def update_service_stats(self):
-        """Update the services table with current stats"""
+        """Update the services table with current stats and query metrics"""
         try:
-            self.services_manager.update_service_stats()
+            # Get query metrics from database connection
+            cassandra_metrics = self.cassandra_connection.get_query_metrics()
+            
+            # Update services table with stats and query metrics
+            self.services_manager.update_query_metrics(cassandra_metrics=cassandra_metrics)
+            
+            # Clear metrics after storing them
+            self.cassandra_connection.clear_query_metrics()
             
         except Exception as e:
             logger.error(f"Failed to update service stats: {e}")
@@ -339,7 +346,7 @@ class SyntheticTrafficGenerator:
         # Return data for stats collection
         return impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data
     
-    def execute_batch_in_chunks(self, data, prepared_statement, param_extractor, batch_size=10000, operation_name="records"):
+    def execute_batch_in_chunks(self, data, prepared_statement, param_extractor, batch_size=10000, operation_name="records", representative_query=None):
         """Execute batch operations in chunks to avoid Cassandra batch size limits"""
         from cassandra.query import BatchStatement, BatchType
         
@@ -358,8 +365,17 @@ class SyntheticTrafficGenerator:
             for record in chunk:
                 batch.add(prepared_statement, param_extractor(record))
             
-            # Execute the batch
-            self.cassandra_session.execute(batch)
+            # Execute the batch using connection wrapper to capture metrics
+            batch_description = f"Batch insert {len(chunk)} {operation_name}"
+            
+            # Pass the batch object directly to the wrapper with representative query
+            result = self.cassandra_connection.execute_query(
+                query=batch,  # Pass the batch object itself
+                parameters=None,
+                query_description=batch_description,
+                representative_query=representative_query
+            )
+                
             logger.info(f"Batch inserted {len(chunk)} {operation_name} (chunk {i//batch_size + 1}/{(total_records + batch_size - 1)//batch_size})")
 
     def insert_data_to_cassandra(self, impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data):
@@ -382,7 +398,8 @@ class SyntheticTrafficGenerator:
                         record['advertisers_id'],
                         record['impressions']
                     ],
-                    operation_name="impression tracking records"
+                    operation_name="impression tracking records",
+                    representative_query=f"""INSERT INTO {os.getenv('HCD_KEYSPACE')}.impression_tracking (publishers_id, cookie_id, timestamp, advertisers_id, impressions) VALUES (?, ?, ?, ?, ?)"""
                 )
             
             # Insert impressions_by_minute data using chunked batches (dual write pattern)
@@ -399,7 +416,8 @@ class SyntheticTrafficGenerator:
                         record['cookie_id'],
                         record['impression_id']
                     ],
-                    operation_name="impressions_by_minute records"
+                    operation_name="impressions_by_minute records",
+                    representative_query=f"""INSERT INTO {os.getenv('HCD_KEYSPACE')}.impressions_by_minute (bucket_date, bucket, ts, publishers_id, advertisers_id, cookie_id, impression_id) VALUES (?, ?, ?, ?, ?, ?, ?)"""
                 )
             
             # Insert conversion tracking data using chunked batches
@@ -412,7 +430,8 @@ class SyntheticTrafficGenerator:
                         record['timestamp'],
                         record['cookie_id']
                     ],
-                    operation_name="conversion tracking records"
+                    operation_name="conversion tracking records",
+                    representative_query=f"""INSERT INTO {os.getenv('HCD_KEYSPACE')}.conversion_tracking (advertisers_id, timestamp, cookie_id) VALUES (?, ?, ?)"""
                 )
             
             # Insert conversions_by_minute data using chunked batches (dual write pattern)
@@ -429,7 +448,8 @@ class SyntheticTrafficGenerator:
                         record['cookie_id'],
                         record['conversion_id']
                     ],
-                    operation_name="conversions_by_minute records"
+                    operation_name="conversions_by_minute records",
+                    representative_query=f"""INSERT INTO {os.getenv('HCD_KEYSPACE')}.conversions_by_minute (bucket_date, bucket, ts, publishers_id, advertisers_id, cookie_id, conversion_id) VALUES (?, ?, ?, ?, ?, ?, ?)"""
                 )
             
             logger.info(f"Successfully inserted all data: {len(impression_data)} impression records, {len(impressions_by_minute_data)} impressions_by_minute records, {len(conversion_data)} conversion records, and {len(conversions_by_minute_data)} conversions_by_minute records")

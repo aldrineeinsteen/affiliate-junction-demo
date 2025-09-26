@@ -15,6 +15,7 @@ from pydantic import BaseModel
 # Import our custom modules
 from . import hcd_operations
 from . import advertisers
+from . import publishers
 from .cassandra_wrapper import cassandra_wrapper
 
 # Configure logging
@@ -36,9 +37,6 @@ class LoginResponse(BaseModel):
     success: bool
     message: str
 
-# Session storage (in production, use Redis or similar)
-active_sessions = {}
-
 app = FastAPI()
 
 # Global connections
@@ -51,21 +49,22 @@ app.mount("/assets", StaticFiles(directory="web/assets"), name="assets")
 templates = Jinja2Templates(directory="web/templates")
 
 # Authentication helper functions
-def create_session_token() -> str:
-    """Create a simple session token"""
-    import secrets
-    return secrets.token_urlsafe(32)
-
-def set_auth_cookie(response, token: str):
-    """Set authentication cookie that never expires"""
+def set_auth_cookie(response, username: str, password: str):
+    """Set authentication cookie with user credentials"""
+    # Simple approach for demo: store username and password in cookie
+    import base64
+    import json
+    
+    auth_data = json.dumps({"username": username, "password": password})
+    encoded_data = base64.b64encode(auth_data.encode()).decode()
+    
     response.set_cookie(
         key="auth_token",
-        value=token,
+        value=encoded_data,
         httponly=True,
         secure=False,  # Set to True in production with HTTPS
-        samesite="lax"
-        # No max_age or expires means session cookie that persists until browser closes
-        # For "never expire" behavior, we'll rely on the server-side session storage
+        samesite="lax",
+        max_age=86400 * 365  # 1 year - persists across restarts
     )
 
 def get_current_user(request: Request) -> Optional[str]:
@@ -74,11 +73,29 @@ def get_current_user(request: Request) -> Optional[str]:
     if not token:
         return None
     
-    session_data = active_sessions.get(token)
-    if not session_data:
+    try:
+        import base64
+        import json
+        
+        # Decode the cookie data
+        decoded_data = base64.b64decode(token.encode()).decode()
+        auth_data = json.loads(decoded_data)
+        
+        username = auth_data.get("username")
+        password = auth_data.get("password")
+        
+        # Validate against environment variables
+        expected_username = os.getenv("WEB_AUTH_USER")
+        expected_password = os.getenv("WEB_AUTH_PASSWD")
+        
+        if username == expected_username and password == expected_password:
+            return username
+        else:
+            return None
+            
+    except (ValueError, json.JSONDecodeError, KeyError):
+        # Invalid cookie data
         return None
-    
-    return session_data.get("username")
 
 def require_auth(request: Request) -> str:
     """Dependency that requires authentication"""
@@ -181,21 +198,14 @@ async def login(request: Request, login_data: LoginRequest):
         )
     
     if login_data.username == expected_username and login_data.password == expected_password:
-        # Create session
-        token = create_session_token()
-        active_sessions[token] = {
-            "username": login_data.username,
-            "created_at": datetime.now()
-        }
-        
-        # Create response with cookie
+        # Create response with cookie containing credentials
         response = JSONResponse(
             content=LoginResponse(
                 success=True,
                 message="Login successful"
             ).dict()
         )
-        set_auth_cookie(response, token)
+        set_auth_cookie(response, login_data.username, login_data.password)
         
         logger.info(f"User {login_data.username} logged in successfully")
         return response
@@ -212,10 +222,6 @@ async def login(request: Request, login_data: LoginRequest):
 @app.post("/auth/logout")
 async def logout(request: Request):
     """Handle logout"""
-    token = request.cookies.get("auth_token")
-    if token and token in active_sessions:
-        del active_sessions[token]
-    
     response = JSONResponse(content={"success": True, "message": "Logged out successfully"})
     response.delete_cookie("auth_token")
     return response
@@ -270,6 +276,37 @@ def get_advertisers_dropdown(request: Request, current_user: str = Depends(requi
                 content={
                     "error": "Failed to fetch advertisers", 
                     "advertisers": [],
+                    "query_metrics": query_metrics
+                }
+            )
+
+
+# --- Publishers API endpoint ---
+@app.get("/api/publishers")
+def get_publishers_dropdown(request: Request, current_user: str = Depends(require_auth)):
+    """API endpoint to get publishers for dropdown"""
+    with cassandra_wrapper.request_context():
+        try:
+            publishers_list = publishers.get_random_publishers(limit=10)
+            
+            # Get query metrics for this request
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return {
+                "publishers": publishers_list,
+                "query_metrics": query_metrics
+            }
+        except Exception as e:
+            logger.error(f"Error fetching publishers: {e}")
+            
+            # Still get query metrics even if there was an error
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Failed to fetch publishers", 
+                    "publishers": [],
                     "query_metrics": query_metrics
                 }
             )

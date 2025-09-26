@@ -2,10 +2,18 @@
 """
 Database connection classes for affiliate junction demo.
 Provides shared connection logic for Cassandra (HCD) and Presto.
+Includes query metrics capture for service monitoring.
 """
 
 import os
+import time
+import json
 import logging
+import threading
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Any, Union
+from dataclasses import dataclass
+from contextlib import contextmanager
 import prestodb
 from cassandra.cluster import Cluster, ExecutionProfile
 from cassandra.auth import PlainTextAuthProvider
@@ -14,12 +22,54 @@ from cassandra.policies import DCAwareRoundRobinPolicy
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class QueryMetrics:
+    """Data class to store query execution metrics"""
+    query_id: str
+    query_text: str
+    query_description: Optional[str]
+    query_type: str
+    parameters: Optional[List[Any]]
+    start_time: datetime
+    end_time: Optional[datetime]
+    execution_time_ms: Optional[float]
+    rows_returned: Optional[int]
+    success: bool
+    error_message: Optional[str]
+    prepared: bool
+    retry_count: int = 0
+    rows_data: Optional[List[Any]] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert metrics to dictionary for JSON serialization"""
+        return {
+            "query_id": self.query_id,
+            "query_text": self.query_text,
+            "query_description": self.query_description,
+            "query_type": self.query_type,
+            "parameters": self.parameters,
+            "start_time": self.start_time.isoformat() if self.start_time else None,
+            "end_time": self.end_time.isoformat() if self.end_time else None,
+            "execution_time_ms": self.execution_time_ms,
+            "rows_returned": self.rows_returned,
+            "success": self.success,
+            "error_message": self.error_message,
+            "prepared": self.prepared,
+            "retry_count": self.retry_count,
+            # Don't include rows_data for batch services to save space
+            "rows_data": None
+        }
+
+
 class CassandraConnection:
-    """Shared Cassandra connection logic"""
+    """Shared Cassandra connection logic with query metrics capture"""
     
     def __init__(self):
         self.session = None
         self.cluster = None
+        self._query_counter = 0
+        self._query_lock = threading.Lock()
+        self._query_metrics = []  # Store query metrics for this connection
     
     def connect(self):
         """Establish connection to Cassandra cluster"""
@@ -58,6 +108,227 @@ class CassandraConnection:
             logger.error(f"Failed to connect to Cassandra: {e}")
             raise
     
+    def _generate_query_id(self) -> str:
+        """Generate unique query ID"""
+        with self._query_lock:
+            self._query_counter += 1
+            return f"cql_{self._query_counter}_{int(time.time() * 1000)}"
+    
+    def execute_query(self, query: str, parameters: Optional[List[Any]] = None, 
+                     max_retries: int = 3, query_description: Optional[str] = None, 
+                     representative_query: Optional[str] = None) -> Any:
+        """Execute a CQL query and capture metrics"""
+        
+        # Handle batch statements - check if query is actually a BatchStatement object
+        from cassandra.query import BatchStatement
+        is_batch = isinstance(query, BatchStatement)
+        
+        if is_batch:
+            # For batch statements, record the batch as a single formatted operation
+            return self._execute_batch_with_single_metric(query, query_description, max_retries, representative_query)
+        else:
+            # Handle regular queries
+            return self._execute_single_query(query, parameters, query_description, max_retries)
+    
+    def _execute_single_query(self, query: str, parameters: Optional[List[Any]] = None,
+                             query_description: Optional[str] = None, max_retries: int = 3) -> Any:
+        """Execute a single CQL query and capture metrics"""
+        query_id = self._generate_query_id()
+        
+        metrics = QueryMetrics(
+            query_id=query_id,
+            query_text=query,
+            query_description=query_description,
+            query_type="HCD",
+            parameters=parameters,
+            start_time=datetime.now(timezone.utc),
+            end_time=None,
+            execution_time_ms=None,
+            rows_returned=None,
+            success=False,
+            error_message=None,
+            prepared=False
+        )
+        
+        # Store metrics
+        self._query_metrics.append(metrics)
+        
+        start_time = time.time()
+        result = None
+        
+        for attempt in range(max_retries):
+            try:
+                metrics.retry_count = attempt
+                
+                if parameters:
+                    # Use prepared statement
+                    metrics.prepared = True
+                    prepared = self.session.prepare(query)
+                    result = self.session.execute(prepared, parameters)
+                else:
+                    # Execute directly
+                    metrics.prepared = False
+                    result = self.session.execute(query)
+                
+                # Calculate execution time
+                end_time = time.time()
+                metrics.end_time = datetime.now(timezone.utc)
+                metrics.execution_time_ms = (end_time - start_time) * 1000
+                
+                # Count rows returned
+                try:
+                    result_list = list(result)
+                    metrics.rows_returned = len(result_list)
+                    metrics.success = True
+                    
+                    logger.debug(f"Query {query_id} completed successfully: {metrics.rows_returned} rows in {metrics.execution_time_ms:.2f}ms")
+                    return result_list
+                    
+                except Exception as count_error:
+                    logger.warning(f"Could not count rows for query {query_id}: {count_error}")
+                    metrics.rows_returned = None
+                    metrics.success = True
+                    return result
+                
+            except Exception as e:
+                logger.warning(f"Query {query_id} attempt {attempt + 1} failed: {e}")
+                metrics.error_message = str(e)
+                
+                if attempt < max_retries - 1:
+                    # Reset connection and retry
+                    self.session = None
+                    self.connect()
+                    continue
+                else:
+                    # Final attempt failed
+                    metrics.end_time = datetime.now(timezone.utc)
+                    metrics.execution_time_ms = (time.time() - start_time) * 1000
+                    metrics.success = False
+                    logger.error(f"Query {query_id} failed after {max_retries} attempts")
+                    raise
+        
+        return result
+    
+    def _execute_batch_with_single_metric(self, batch_statement, query_description: Optional[str] = None, max_retries: int = 3, representative_query: Optional[str] = None) -> Any:
+        """Execute a batch statement and record metrics for the batch as a single operation"""
+        from cassandra.query import BatchStatement
+        import sqlparse
+        
+        batch_start_time = time.time()
+        batch_query_id = self._generate_query_id()
+        
+        # Extract batch size and basic info
+        batch_size = 0
+        
+        try:
+            # Access the batch's queries to get size
+            if hasattr(batch_statement, '_statements_and_parameters'):
+                batch_size = len(batch_statement._statements_and_parameters)
+            elif hasattr(batch_statement, '_queries_and_parameters'):
+                batch_size = len(batch_statement._queries_and_parameters)
+            else:
+                # Try to get batch size from other attributes
+                batch_size = getattr(batch_statement, 'size', 0) or len(getattr(batch_statement, '_statements_and_parameters', []))
+                
+        except Exception as e:
+            logger.warning(f"Could not determine batch size: {e}")
+            batch_size = 0
+        
+        # Create batch info string
+        batch_type = getattr(batch_statement, 'batch_type', 'UNKNOWN')
+        consistency = getattr(batch_statement, 'consistency_level', 'Not Set')
+        batch_info = f"<BatchStatement type={batch_type}, statements={batch_size}, consistency={consistency}>"
+        
+        # Use the representative query provided by the caller
+        sample_query_text = representative_query
+        
+        # Format the query using sqlparse if provided
+        if sample_query_text:
+            try:
+                formatted_query = sqlparse.format(sample_query_text, reindent=True, keyword_case='upper')
+                sample_query_text = formatted_query
+            except Exception as e:
+                logger.debug(f"Could not format representative query with sqlparse: {e}")
+        
+        # Combine batch info with formatted query
+        if sample_query_text:
+            combined_query_text = f"-- {batch_info}\n{sample_query_text}"
+        else:
+            combined_query_text = batch_info
+        
+        # Create a single metric for the entire batch
+        metrics = QueryMetrics(
+            query_id=batch_query_id,
+            query_text=combined_query_text,
+            query_description=query_description or 'Batch operation',
+            query_type="HCD_BATCH",
+            parameters=None,  # Don't store parameters for batch operations
+            start_time=datetime.now(timezone.utc),
+            end_time=None,
+            execution_time_ms=None,
+            rows_returned=0,  # Batch operations don't return rows
+            success=False,
+            error_message=None,
+            prepared=True  # Batch queries are typically prepared
+        )
+        
+        self._query_metrics.append(metrics)
+        logger.debug(f"Recorded single metric for batch with {batch_size} statements. Total metrics: {len(self._query_metrics)}")
+        
+        # Execute the actual batch
+        result = None
+        batch_success = False
+        batch_error = None
+        final_attempt = 0
+        
+        for attempt in range(max_retries):
+            final_attempt = attempt
+            try:
+                result = self.session.execute(batch_statement)
+                batch_success = True
+                break
+                
+            except Exception as e:
+                batch_error = str(e)
+                logger.warning(f"Batch {batch_query_id} attempt {attempt + 1} failed: {e}")
+                
+                if attempt < max_retries - 1:
+                    # Reset connection and retry
+                    self.session = None
+                    self.connect()
+                    continue
+                else:
+                    logger.error(f"Batch {batch_query_id} failed after {max_retries} attempts")
+                    break
+        
+        # Update the single batch metric with execution results
+        batch_end_time = time.time()
+        batch_execution_time = (batch_end_time - batch_start_time) * 1000
+        
+        # Find and update the batch metric
+        for metric in self._query_metrics:
+            if metric.query_id == batch_query_id:
+                metric.end_time = datetime.now(timezone.utc)
+                metric.execution_time_ms = batch_execution_time
+                metric.success = batch_success
+                metric.error_message = batch_error if not batch_success else None
+                metric.retry_count = final_attempt
+                break
+        
+        if not batch_success and batch_error:
+            raise Exception(batch_error)
+        
+        logger.debug(f"Batch {batch_query_id} with {batch_size} statements completed in {batch_execution_time:.2f}ms")
+        return result
+    
+    def get_query_metrics(self) -> List[Dict[str, Any]]:
+        """Get all query metrics captured by this connection"""
+        return [metric.to_dict() for metric in self._query_metrics]
+    
+    def clear_query_metrics(self):
+        """Clear stored query metrics"""
+        self._query_metrics = []
+    
     def close(self):
         """Clean up Cassandra connection"""
         try:
@@ -71,10 +342,13 @@ class CassandraConnection:
 
 
 class PrestoConnection:
-    """Shared Presto connection logic"""
+    """Shared Presto connection logic with query metrics capture"""
     
     def __init__(self):
         self.connection = None
+        self._query_counter = 0
+        self._query_lock = threading.Lock()
+        self._query_metrics = []  # Store query metrics for this connection
     
     def connect(self):
         """Establish connection to Presto"""
@@ -99,6 +373,84 @@ class PrestoConnection:
         except Exception as e:
             logger.error(f"Failed to connect to Presto: {e}")
             raise
+    
+    def _generate_query_id(self) -> str:
+        """Generate unique query ID"""
+        with self._query_lock:
+            self._query_counter += 1
+            return f"presto_{self._query_counter}_{int(time.time() * 1000)}"
+    
+    def execute_query(self, query: str, parameters: Optional[List[Any]] = None,
+                     max_retries: int = 3, query_description: Optional[str] = None) -> Any:
+        """Execute a Presto query and capture metrics"""
+        query_id = self._generate_query_id()
+        metrics = QueryMetrics(
+            query_id=query_id,
+            query_text=query,
+            query_description=query_description,
+            query_type="Presto",
+            parameters=parameters,
+            start_time=datetime.now(timezone.utc),
+            end_time=None,
+            execution_time_ms=None,
+            rows_returned=None,
+            success=False,
+            error_message=None,
+            prepared=False
+        )
+        
+        # Store metrics
+        self._query_metrics.append(metrics)
+        
+        start_time = time.time()
+        result = None
+        
+        for attempt in range(max_retries):
+            try:
+                metrics.retry_count = attempt
+                
+                cursor = self.connection.cursor()
+                cursor.execute(query, parameters)
+                result = cursor.fetchall()
+                
+                # Calculate execution time
+                end_time = time.time()
+                metrics.end_time = datetime.now(timezone.utc)
+                metrics.execution_time_ms = (end_time - start_time) * 1000
+                
+                # Count rows returned
+                metrics.rows_returned = len(result) if result else 0
+                metrics.success = True
+                
+                logger.debug(f"Query {query_id} completed successfully: {metrics.rows_returned} rows in {metrics.execution_time_ms:.2f}ms")
+                return result
+                
+            except Exception as e:
+                logger.warning(f"Query {query_id} attempt {attempt + 1} failed: {e}")
+                metrics.error_message = str(e)
+                
+                if attempt < max_retries - 1:
+                    # Reset connection and retry
+                    self.connection = None
+                    self.connect()
+                    continue
+                else:
+                    # Final attempt failed
+                    metrics.end_time = datetime.now(timezone.utc)
+                    metrics.execution_time_ms = (time.time() - start_time) * 1000
+                    metrics.success = False
+                    logger.error(f"Query {query_id} failed after {max_retries} attempts")
+                    raise
+        
+        return result
+    
+    def get_query_metrics(self) -> List[Dict[str, Any]]:
+        """Get all query metrics captured by this connection"""
+        return [metric.to_dict() for metric in self._query_metrics]
+    
+    def clear_query_metrics(self):
+        """Clear stored query metrics"""
+        self._query_metrics = []
     
     def close(self):
         """Clean up Presto connection"""

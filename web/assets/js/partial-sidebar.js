@@ -1,6 +1,6 @@
 /**
  * Sidebar Partial JavaScript
- * Handles the advertiser dropdown functionality for sidebar.html partial
+ * Handles the advertiser and publisher dropdown functionality for sidebar.html partial
  * This provides reusable sidebar functionality across pages
  */
 
@@ -50,6 +50,51 @@ async function loadAdvertisers() {
 }
 
 /**
+ * Load publishers into the dropdown
+ */
+async function loadPublishers() {
+  try {
+    const response = await fetch("/api/publishers");
+    const data = await response.json();
+    
+    const select = document.getElementById("publishersSelect");
+    
+    if (!select) {
+      console.warn('Publishers select element not found');
+      return;
+    }
+    
+    if (data.publishers && data.publishers.length > 0) {
+      // Clear loading message
+      select.innerHTML = '<option value="">Select a publisher...</option>';
+      
+      // Add publishers to dropdown
+      data.publishers.forEach(publisher => {
+        const option = document.createElement("option");
+        option.value = publisher.publisher_id;
+        option.textContent = publisher.name;
+        
+        // Select current publisher if it matches the page context (for dashboard page)
+        const currentPublisherId = getCurrentPublisherId();
+        if (publisher.publisher_id === currentPublisherId) {
+          option.selected = true;
+        }
+        
+        select.appendChild(option);
+      });
+    } else {
+      select.innerHTML = '<option value="">No publishers available</option>';
+    }
+  } catch (error) {
+    console.error("Error loading publishers:", error);
+    const select = document.getElementById("publishersSelect");
+    if (select) {
+      select.innerHTML = '<option value="">Error loading publishers</option>';
+    }
+  }
+}
+
+/**
  * Get the current advertiser ID from the page context
  * This will try multiple methods: from data attribute, URL, or global variable
  */
@@ -75,6 +120,31 @@ function getCurrentAdvertiserId() {
 }
 
 /**
+ * Get the current publisher ID from the page context
+ * This will try multiple methods: from data attribute, URL, or global variable
+ */
+function getCurrentPublisherId() {
+  // Method 1: Try to get from a data attribute on body
+  const bodyEl = document.body;
+  if (bodyEl && bodyEl.dataset.publisherId) {
+    return bodyEl.dataset.publisherId;
+  }
+  
+  // Method 2: Try to get from a global variable (set by template)
+  if (typeof window.PUBLISHER_ID !== 'undefined') {
+    return window.PUBLISHER_ID;
+  }
+  
+  // Method 3: Extract from URL path /publisher/{id}
+  const pathParts = window.location.pathname.split('/');
+  if (pathParts[1] === 'publisher' && pathParts[2]) {
+    return pathParts[2];
+  }
+  
+  return null;
+}
+
+/**
  * Handle advertiser selection change
  */
 function onAdvertiserChange() {
@@ -84,9 +154,23 @@ function onAdvertiserChange() {
   const selectedAdvertiser = select.value;
   
   if (selectedAdvertiser) {
-    console.log("Selected advertiser:", selectedAdvertiser);
     // Navigate to the advertiser dashboard page
     window.location.href = `/advertiser/${selectedAdvertiser}`;
+  }
+}
+
+/**
+ * Handle publisher selection change
+ */
+function onPublisherChange() {
+  const select = document.getElementById("publishersSelect");
+  if (!select) return;
+  
+  const selectedPublisher = select.value;
+  
+  if (selectedPublisher) {
+    // Navigate to the publisher dashboard page
+    window.location.href = `/publisher/${selectedPublisher}`;
   }
 }
 
@@ -96,6 +180,8 @@ function onAdvertiserChange() {
 function initializeSidebar() {
   // Load advertisers dropdown
   loadAdvertisers();
+  // Load publishers dropdown
+  loadPublishers();
 }
 
 // Auto-initialize if DOM is already loaded, otherwise wait for DOMContentLoaded

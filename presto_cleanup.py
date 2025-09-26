@@ -78,14 +78,12 @@ class AffiliateJunctionDataCleanup:
             """
             
             logger.info("Executing cleanup for impression_tracking table...")
-            cursor.execute(impression_delete_query)
+            result = self.presto_conn.execute_query(
+                query=impression_delete_query,
+                query_description=f"Delete impression records older than {cutoff_timestamp}"
+            )
             
-            # Get the number of affected rows (if supported)
-            try:
-                impression_result = cursor.fetchall()
-                logger.info(f"Impression tracking cleanup completed. Result: {impression_result}")
-            except Exception as e:
-                logger.info("Impression tracking cleanup completed (result not available)")
+            logger.info(f"Impression tracking cleanup completed. Result: {result}")
             
             # Clean up conversion_tracking table
             conversion_delete_query = f"""
@@ -94,16 +92,12 @@ class AffiliateJunctionDataCleanup:
             """
             
             logger.info("Executing cleanup for conversion_tracking table...")
-            cursor.execute(conversion_delete_query)
+            result = self.presto_conn.execute_query(
+                query=conversion_delete_query,
+                query_description=f"Delete conversion records older than {cutoff_timestamp}"
+            )
             
-            # Get the number of affected rows (if supported)
-            try:
-                conversion_result = cursor.fetchall()
-                logger.info(f"Conversion tracking cleanup completed. Result: {conversion_result}")
-            except Exception as e:
-                logger.info("Conversion tracking cleanup completed (result not available)")
-            
-            cursor.close()
+            logger.info(f"Conversion tracking cleanup completed. Result: {result}")
             
             # Record execution time for stats
             execution_time = time.time() - cleanup_start_time
@@ -123,17 +117,19 @@ class AffiliateJunctionDataCleanup:
     def get_table_counts(self):
         """Get current record counts for monitoring purposes"""
         try:
-            cursor = self.presto_connection.cursor()
-            
             # Count records in impression_tracking table
-            cursor.execute("SELECT COUNT(*) FROM iceberg_data.affiliate_junction.impression_tracking")
-            impression_count = cursor.fetchone()[0]
+            impression_result = self.presto_conn.execute_query(
+                query="SELECT COUNT(*) FROM iceberg_data.affiliate_junction.impression_tracking",
+                query_description="Count impression tracking records"
+            )
+            impression_count = impression_result[0][0] if impression_result else 0
             
             # Count records in conversion_tracking table
-            cursor.execute("SELECT COUNT(*) FROM iceberg_data.affiliate_junction.conversion_tracking")
-            conversion_count = cursor.fetchone()[0]
-            
-            cursor.close()
+            conversion_result = self.presto_conn.execute_query(
+                query="SELECT COUNT(*) FROM iceberg_data.affiliate_junction.conversion_tracking",
+                query_description="Count conversion tracking records"
+            )
+            conversion_count = conversion_result[0][0] if conversion_result else 0
             
             logger.info(f"Current table counts - Impressions: {impression_count}, Conversions: {conversion_count}")
             
@@ -211,10 +207,17 @@ class AffiliateJunctionDataCleanup:
                     current_timestamp = datetime.now(timezone.utc).isoformat()
                     iteration_stats['total_execution_time_seconds'] = [current_timestamp, execution_time]
                     
-                    # Update services table with stats
+                    # Get query metrics from database connections
+                    presto_metrics = self.presto_conn.get_query_metrics() if self.presto_conn else None
+                    
+                    # Update services table with stats and query metrics
                     if iteration_stats:
                         self.services_manager.update_timeseries_stats(iteration_stats)
-                        self.services_manager.update_service_stats()
+                        self.services_manager.update_query_metrics(presto_metrics=presto_metrics)
+                    
+                    # Clear query metrics after storing them
+                    if self.presto_conn:
+                        self.presto_conn.clear_query_metrics()
                     
                     logger.info(f"Cleanup cycle completed in {execution_time:.2f} seconds. Sleeping for 300 seconds...")
                     time.sleep(300)  # Sleep for 300 seconds (5 minutes)

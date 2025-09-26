@@ -84,9 +84,8 @@ class AffiliateJunctionETL:
     def connect_to_presto(self):
         """Establish connection to Presto"""
         try:
-            presto_conn = PrestoConnection()
-            self.presto_connection = presto_conn.connect()
-            self.presto_client = presto_conn  # Keep reference for cleanup
+            self.presto_client = PrestoConnection()
+            self.presto_connection = self.presto_client.connect()
             
             logger.info("Connected to Presto")
             
@@ -141,7 +140,10 @@ class AffiliateJunctionETL:
                 WHERE bucket_date = '{previous_minute}' AND bucket = {bucket}
                 """
                 
-                rows = self.cassandra_session.execute(query)
+                rows = self.cassandra_connection.execute_query(
+                    query=query,
+                    query_description=f"Fetch impressions from bucket {bucket} for {previous_minute}"
+                )
                 for row in rows:
                     all_impressions.append({
                         'bucket_date': row.bucket_date,
@@ -185,8 +187,6 @@ class AffiliateJunctionETL:
                 # Convert Spark DataFrame to list of tuples for Presto insertion
                 rows_to_insert = final_df.collect()
                 
-                cursor = self.presto_connection.cursor()
-                
                 insert_query = """
                 INSERT INTO iceberg_data.affiliate_junction.impression_tracking 
                 (publishers_id, cookie_id, advertisers_id, timestamp, impressions)
@@ -215,10 +215,12 @@ class AffiliateJunctionETL:
                     VALUES {values_clause}
                     """
                     
-                    # Execute the batch as a single statement
-                    cursor.execute(batch_insert_query)
+                    # Execute the batch using the wrapper
+                    self.presto_client.execute_query(
+                        query=batch_insert_query,
+                        query_description=f"Batch insert {len(batch)} aggregated impression records"
+                    )
                 
-                cursor.close()
                 logger.info(f"Successfully inserted {len(rows_to_insert)} aggregated impression records to Presto")
             
         except Exception as e:
@@ -247,7 +249,10 @@ class AffiliateJunctionETL:
                 WHERE bucket_date = '{previous_minute}' AND bucket = {bucket}
                 """
                 
-                rows = self.cassandra_session.execute(query)
+                rows = self.cassandra_connection.execute_query(
+                    query=query,
+                    query_description=f"Fetch conversions from bucket {bucket} for {previous_minute}"
+                )
                 for row in rows:
                     all_conversions.append({
                         'bucket_date': row.bucket_date,
@@ -269,7 +274,6 @@ class AffiliateJunctionETL:
             
             # Write conversion data directly to Presto conversion_tracking table
             # Each conversion is a distinct event, so no aggregation needed
-            cursor = self.presto_connection.cursor()
             
             conversions_batches = 0
             # Process in batches of 10,000 records for better performance
@@ -295,10 +299,12 @@ class AffiliateJunctionETL:
                 VALUES {values_clause}
                 """
                 
-                # Execute the batch as a single statement
-                cursor.execute(batch_insert_query)
+                # Execute the batch using the wrapper
+                self.presto_client.execute_query(
+                    query=batch_insert_query,
+                    query_description=f"Batch insert {len(batch)} conversion records"
+                )
             
-            cursor.close()
             logger.info(f"Successfully inserted {len(all_conversions)} conversion records to Presto")
             
         except Exception as e:
@@ -342,9 +348,22 @@ class AffiliateJunctionETL:
             logger.error(f"Failed to update timeseries stats: {e}")
     
     def update_service_stats(self):
-        """Update the services table with current stats"""
+        """Update the services table with current stats and query metrics"""
         try:
-            self.services_manager.update_service_stats()
+            # Get query metrics from both database connections
+            cassandra_metrics = self.cassandra_connection.get_query_metrics()
+            presto_metrics = self.presto_client.get_query_metrics() if self.presto_client else None
+            
+            # Update services table with stats and query metrics
+            self.services_manager.update_query_metrics(
+                cassandra_metrics=cassandra_metrics,
+                presto_metrics=presto_metrics
+            )
+            
+            # Clear metrics after storing them
+            self.cassandra_connection.clear_query_metrics()
+            if self.presto_client:
+                self.presto_client.clear_query_metrics()
             
         except Exception as e:
             logger.error(f"Failed to update service stats: {e}")
