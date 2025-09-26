@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS impression_tracking (
     impressions INT,
     PRIMARY KEY ((publishers_id, cookie_id, advertisers_id), timestamp)
 ) WITH CLUSTERING ORDER BY (timestamp DESC)
-AND default_time_to_live = 360;
+AND default_time_to_live = 3600;
 
 -- Create conversion tracking table
 CREATE TABLE IF NOT EXISTS conversion_tracking (
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS conversion_tracking (
     cookie_id TEXT,
     PRIMARY KEY (advertisers_id, timestamp)
 ) WITH CLUSTERING ORDER BY (timestamp DESC)
-AND default_time_to_live = 360;
+AND default_time_to_live = 3600;
 
 -- Create impressions by minute table for time-based impression tracking
 CREATE TABLE IF NOT EXISTS impressions_by_minute (
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS impressions_by_minute (
     impression_id UUID,     
     PRIMARY KEY ((bucket_date, bucket), ts, publishers_id, advertisers_id, cookie_id, impression_id)
 ) WITH CLUSTERING ORDER BY (ts ASC)
-AND default_time_to_live = 600;
+AND default_time_to_live = 6000;
 
 -- Create conversions by minute table for time-based conversion tracking
 CREATE TABLE IF NOT EXISTS conversions_by_minute (
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS conversions_by_minute (
     conversion_id UUID,     
     PRIMARY KEY ((bucket_date, bucket), ts, publishers_id, advertisers_id, cookie_id, conversion_id)
 ) WITH CLUSTERING ORDER BY (ts ASC)
-AND default_time_to_live = 600;
+AND default_time_to_live = 6000;
 
 -- Create publishers table with trailing 90-minute data using JSON text fields
 -- Each JSON array contains objects with timestamp and count: [{"ts": 1234567890, "count": 10}, ...]

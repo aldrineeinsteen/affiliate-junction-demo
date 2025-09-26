@@ -174,18 +174,23 @@ function addQueryToPanel(method, url, status = 'pending', queryMetrics = null) {
   queryItem.className = `query-item ${status} new`;
   queryItem.id = queryId;
   
-  // If we have query metrics, show database queries
+  // If we have query metrics, create individual query items instead of grouping them
   if (queryMetrics && queryMetrics.length > 0) {
-    let queriesHtml = '';
+    // For multiple queries (like services), create separate query items for each
+    const queryIds = [];
+    
     queryMetrics.forEach((query, index) => {
       const queryType = query.query_type || 'Unknown';
       const queryTypeClass = queryType.toLowerCase();
       const executionTime = query.execution_time_ms ? `${Math.round(query.execution_time_ms)}ms` : 'N/A';
       const description = query.query_description || 'Database query';
       
+      // Create unique ID for this individual query
+      const individualQueryId = `query-${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${index}`;
+      queryIds.push(individualQueryId);
+      
       // Store detailed query data for the details panel
-      const itemQueryId = `${queryId}-${index}`;
-      queryDataStore.set(itemQueryId, {
+      queryDataStore.set(individualQueryId, {
         description: description,
         formatted_query_text: query.formatted_query_text || 'Query text not available',
         parameters: query.parameters || [],
@@ -204,8 +209,13 @@ function addQueryToPanel(method, url, status = 'pending', queryMetrics = null) {
         prestoQueryCount++;
       }
       
-      queriesHtml += `
-        <div class="query-item-container" onclick="showQueryDetails('${itemQueryId}')" style="cursor: pointer;">
+      // Create individual query item element
+      const individualQueryItem = document.createElement('div');
+      individualQueryItem.className = `query-item ${status} new`;
+      individualQueryItem.id = individualQueryId;
+      
+      individualQueryItem.innerHTML = `
+        <div class="query-item-container" onclick="showQueryDetails('${individualQueryId}')" style="cursor: pointer;">
           <div class="query-item-header">
             <span class="query-type-badge ${queryTypeClass}">${queryType}</span>
             <span class="query-execution-time">${executionTime}</span>
@@ -215,21 +225,49 @@ function addQueryToPanel(method, url, status = 'pending', queryMetrics = null) {
           <div class="query-item-url">${url}</div>
         </div>
       `;
+      
+      // Add individual query item to top of list
+      queryList.insertBefore(individualQueryItem, queryList.firstChild);
+      
+      // Increment badge count for each new query
+      incrementQueryBadge();
     });
-    queryItem.innerHTML = queriesHtml;
+    
+    // Since we've created individual items, we don't need the original queryItem
+    // Return the first query ID for compatibility
+    updateQueryStats();
+    return queryIds[0] || queryId;
+  } else {
+    // No query metrics - create a single HTTP request entry (fallback behavior)
+    const queryItem = document.createElement('div');
+    queryItem.className = `query-item ${status} new`;
+    queryItem.id = queryId;
+    
+    // Create simple HTTP request display
+    queryItem.innerHTML = `
+      <div class="query-item-container">
+        <div class="query-item-header">
+          <span class="query-type-badge http">${method}</span>
+          <span class="query-execution-time">--</span>
+          <span class="query-item-time mx-2">${timestamp}</span>
+        </div>
+        <div class="query-item-description">HTTP Request</div>
+        <div class="query-item-url">${url}</div>
+        <div class="query-item-status ${status}" id="${queryId}-status">${status.toUpperCase()}</div>
+        <div class="query-item-response" id="${queryId}-response">Pending...</div>
+      </div>
+    `;
+    
+    // Add to top of list
+    queryList.insertBefore(queryItem, queryList.firstChild);
+    
+    // Update counters and increment badge
+    updateQueryStats();
+    incrementQueryBadge();
+    
+    // Return query ID for later updates
+    return queryId;
   }
-  
-  // Add to top of list
-  queryList.insertBefore(queryItem, queryList.firstChild);
-  
-  // Update counters
-  updateQueryStats();
-  
-  // Increment badge count for new queries
-  incrementQueryBadge();
-  
-  // Return query ID for later updates
-  return queryId;
 }
 
 /**
@@ -421,7 +459,7 @@ function initializeEnhancedFetch() {
  */
 function generateRowDataTable(rowsData) {
   if (!rowsData || rowsData.length === 0) {
-    return '<div class="text-muted">No rows returned</div>';
+    return '<div class="text-muted">No sample rows provided</div>';
   }
   
   // Get all unique column names from all rows

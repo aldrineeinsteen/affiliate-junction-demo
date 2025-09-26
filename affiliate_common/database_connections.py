@@ -23,6 +23,26 @@ from cassandra.policies import DCAwareRoundRobinPolicy
 logger = logging.getLogger(__name__)
 
 
+def truncate_query_text(query_text: str, max_length: int = 500) -> str:
+    """
+    Truncate query text if it exceeds the maximum length.
+    Preserves readability by adding ellipsis and showing character count.
+    
+    Args:
+        query_text: The query text to potentially truncate
+        max_length: Maximum allowed length (default: 500)
+        
+    Returns:
+        Truncated query text with ellipsis if needed
+    """
+    if not query_text or len(query_text) <= max_length:
+        return query_text
+    
+    # Truncate and add ellipsis with character count info
+    truncated = query_text[:max_length].rstrip()
+    return f"{truncated}... [truncated from {len(query_text)} chars]"
+
+
 @dataclass
 class QueryMetrics:
     """Data class to store query execution metrics"""
@@ -77,7 +97,7 @@ class QueryMetrics:
         
         return {
             "query_id": self.query_id,
-            "query_text": self.query_text,
+            "query_text": truncate_query_text(self.query_text),
             "query_description": self.query_description,
             "query_type": self.query_type,
             "parameters": sanitized_parameters,
@@ -89,7 +109,7 @@ class QueryMetrics:
             "error_message": self.error_message,
             "prepared": self.prepared,
             "retry_count": self.retry_count,
-            "formatted_query_text": final_formatted_query,
+            "formatted_query_text": truncate_query_text(final_formatted_query) if final_formatted_query else None,
             "simplified_query_text": self.simplified_query_text,
             "repeat_count": self.repeat_count,
             # Don't include rows_data for batch services to save space

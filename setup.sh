@@ -29,3 +29,6 @@ sudo systemctl enable generate_traffic hcd_to_presto presto_to_hcd presto_cleanu
 sudo systemctl start generate_traffic hcd_to_presto presto_to_hcd presto_cleanup
 echo "systemctl done"
 
+
+# uvicorn web.main:app --reload --host 0.0.0.0 --port 10000
+
