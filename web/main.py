@@ -2,11 +2,15 @@ import os
 import logging
 import prestodb
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
+from typing import Optional
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, HTTPException, Depends, Form
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
 
 # Import our custom modules
 from . import hcd_operations
@@ -23,6 +27,18 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
+# Authentication models
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class LoginResponse(BaseModel):
+    success: bool
+    message: str
+
+# Session storage (in production, use Redis or similar)
+active_sessions = {}
+
 app = FastAPI()
 
 # Global connections
@@ -33,6 +49,56 @@ app.mount("/assets", StaticFiles(directory="web/assets"), name="assets")
 
 # Jinja2 templates in web/templates
 templates = Jinja2Templates(directory="web/templates")
+
+# Authentication helper functions
+def create_session_token() -> str:
+    """Create a simple session token"""
+    import secrets
+    return secrets.token_urlsafe(32)
+
+def set_auth_cookie(response, token: str):
+    """Set authentication cookie that never expires"""
+    response.set_cookie(
+        key="auth_token",
+        value=token,
+        httponly=True,
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax"
+        # No max_age or expires means session cookie that persists until browser closes
+        # For "never expire" behavior, we'll rely on the server-side session storage
+    )
+
+def get_current_user(request: Request) -> Optional[str]:
+    """Check if user is authenticated via cookie"""
+    token = request.cookies.get("auth_token")
+    if not token:
+        return None
+    
+    session_data = active_sessions.get(token)
+    if not session_data:
+        return None
+    
+    return session_data.get("username")
+
+def require_auth(request: Request) -> str:
+    """Dependency that requires authentication"""
+    user = get_current_user(request)
+    if not user:
+        # For API requests, return 401
+        if request.url.path.startswith("/api/"):
+            raise HTTPException(status_code=401, detail="Authentication required")
+        # For web pages, we need to handle this differently
+        # We'll let the route handle the redirect instead of doing it in the dependency
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return user
+
+def check_auth_or_redirect(request: Request):
+    """Helper function to check auth and redirect if necessary for web pages"""
+    user = get_current_user(request)
+    if not user:
+        redirect_url = f"/login?redirect={request.url.path}"
+        return RedirectResponse(url=redirect_url, status_code=302)
+    return None
 
 
 def connect_to_presto():
@@ -88,9 +154,76 @@ async def shutdown_event():
         logger.error(f"Error during connection cleanup: {e}")
 
 
+# --- Authentication routes ---
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, redirect: str = "/"):
+    """Display login page"""
+    # If user is already authenticated, redirect to intended page
+    if get_current_user(request):
+        return RedirectResponse(url=redirect, status_code=302)
+    
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.post("/auth/login", response_model=LoginResponse)
+async def login(request: Request, login_data: LoginRequest):
+    """Handle login authentication"""
+    expected_username = os.getenv("WEB_AUTH_USER")
+    expected_password = os.getenv("WEB_AUTH_PASSWD")
+    
+    if not expected_username or not expected_password:
+        logger.error("Web authentication environment variables not configured")
+        return JSONResponse(
+            status_code=500,
+            content=LoginResponse(
+                success=False, 
+                message="Server configuration error"
+            ).dict()
+        )
+    
+    if login_data.username == expected_username and login_data.password == expected_password:
+        # Create session
+        token = create_session_token()
+        active_sessions[token] = {
+            "username": login_data.username,
+            "created_at": datetime.now()
+        }
+        
+        # Create response with cookie
+        response = JSONResponse(
+            content=LoginResponse(
+                success=True,
+                message="Login successful"
+            ).dict()
+        )
+        set_auth_cookie(response, token)
+        
+        logger.info(f"User {login_data.username} logged in successfully")
+        return response
+    else:
+        logger.warning(f"Failed login attempt for username: {login_data.username}")
+        return JSONResponse(
+            status_code=401,
+            content=LoginResponse(
+                success=False,
+                message="Invalid username or password"
+            ).dict()
+        )
+
+@app.post("/auth/logout")
+async def logout(request: Request):
+    """Handle logout"""
+    token = request.cookies.get("auth_token")
+    if token and token in active_sessions:
+        del active_sessions[token]
+    
+    response = JSONResponse(content={"success": True, "message": "Logged out successfully"})
+    response.delete_cookie("auth_token")
+    return response
+
+
 # --- API endpoint ---
 @app.get("/api")
-def get_data():
+def get_data(request: Request, current_user: str = Depends(require_auth)):
     """API endpoint with database connection status"""
     with cassandra_wrapper.request_context():
         cassandra_session = hcd_operations.get_cassandra_session()
@@ -113,7 +246,7 @@ def get_data():
 
 # --- Advertisers API endpoint ---
 @app.get("/api/advertisers")
-def get_advertisers_dropdown():
+def get_advertisers_dropdown(request: Request, current_user: str = Depends(require_auth)):
     """API endpoint to get advertisers for dropdown"""
     with cassandra_wrapper.request_context():
         try:
@@ -144,7 +277,7 @@ def get_advertisers_dropdown():
 
 # --- Advertiser Details API endpoint ---
 @app.get("/api/advertisers/{advertiser_id}")
-def get_advertiser_details_endpoint(advertiser_id: str):
+def get_advertiser_details_endpoint(advertiser_id: str, request: Request, current_user: str = Depends(require_auth)):
     """API endpoint to get detailed information for a specific advertiser"""
     with cassandra_wrapper.request_context():
         try:
@@ -183,7 +316,7 @@ def get_advertiser_details_endpoint(advertiser_id: str):
 
 # --- Advertiser Dashboard API endpoint ---
 @app.get("/api/advertisers/{advertiser_id}/dashboard")
-def get_advertiser_dashboard_endpoint(advertiser_id: str):
+def get_advertiser_dashboard_endpoint(advertiser_id: str, request: Request, current_user: str = Depends(require_auth)):
     """API endpoint to get dashboard data for a specific advertiser with aggregated totals"""
     with cassandra_wrapper.request_context():
         try:
@@ -222,7 +355,7 @@ def get_advertiser_dashboard_endpoint(advertiser_id: str):
 
 # --- Advertiser Chart Data API endpoint ---
 @app.get("/api/advertisers/{advertiser_id}/chart")
-def get_advertiser_chart_endpoint(advertiser_id: str):
+def get_advertiser_chart_endpoint(advertiser_id: str, request: Request, current_user: str = Depends(require_auth)):
     """API endpoint to get chart data for a specific advertiser"""
     with cassandra_wrapper.request_context():
         try:
@@ -261,7 +394,7 @@ def get_advertiser_chart_endpoint(advertiser_id: str):
 
 # --- Services Settings API endpoint ---
 @app.put("/api/services/{service_name}/settings")
-async def update_service_settings(service_name: str, settings: dict):
+async def update_service_settings(service_name: str, settings: dict, request: Request, current_user: str = Depends(require_auth)):
     """Update settings for a specific service"""
     with cassandra_wrapper.request_context():
         try:
@@ -311,6 +444,11 @@ async def update_service_settings(service_name: str, settings: dict):
 @app.get("/advertiser/{advertiser_id}", response_class=HTMLResponse)
 def advertiser_dashboard(request: Request, advertiser_id: str):
     """Advertiser dashboard page"""
+    # Check authentication and redirect if necessary
+    redirect_response = check_auth_or_redirect(request)
+    if redirect_response:
+        return redirect_response
+    
     return templates.TemplateResponse("advertiser_dashboard.html", {
         "request": request, 
         "advertiser_id": advertiser_id
@@ -321,6 +459,11 @@ def advertiser_dashboard(request: Request, advertiser_id: str):
 @app.get("/services", response_class=HTMLResponse)
 def services_dashboard(request: Request):
     """Service health dashboard page"""
+    # Check authentication and redirect if necessary
+    redirect_response = check_auth_or_redirect(request)
+    if redirect_response:
+        return redirect_response
+    
     with cassandra_wrapper.request_context():
         try:
             # Query the services table
@@ -394,4 +537,9 @@ def services_dashboard(request: Request):
 # --- UI endpoint ---
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
+    # Check authentication and redirect if necessary
+    redirect_response = check_auth_or_redirect(request)
+    if redirect_response:
+        return redirect_response
+    
     return templates.TemplateResponse("index.html", {"request": request})

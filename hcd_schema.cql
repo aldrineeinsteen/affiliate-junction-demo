@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS services (
     description TEXT,
     last_updated TIMESTAMP,
     stats TEXT,
-    settings TEXT
+    settings TEXT,
+    query_metrics TEXT
 );
 
 
