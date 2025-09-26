@@ -41,6 +41,8 @@ class QueryMetrics:
     retry_count: int = 0
     rows_data: Optional[List[Any]] = None
     formatted_query_text: Optional[str] = None
+    simplified_query_text: Optional[str] = None  # Normalized query for deduplication
+    repeat_count: int = 1  # Number of times this query pattern has been executed
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert metrics to dictionary for JSON serialization"""
@@ -68,6 +70,11 @@ class QueryMetrics:
                     # If conversion fails, use a placeholder
                     sanitized_parameters.append("<unconvertible>")
         
+        # Add repeat count header to formatted query text if repeated
+        final_formatted_query = self.formatted_query_text
+        if self.repeat_count > 1 and self.formatted_query_text:
+            final_formatted_query = f"-- Query repeated {self.repeat_count} times{self.formatted_query_text}"
+        
         return {
             "query_id": self.query_id,
             "query_text": self.query_text,
@@ -82,10 +89,49 @@ class QueryMetrics:
             "error_message": self.error_message,
             "prepared": self.prepared,
             "retry_count": self.retry_count,
-            "formatted_query_text": self.formatted_query_text,
+            "formatted_query_text": final_formatted_query,
+            "simplified_query_text": self.simplified_query_text,
+            "repeat_count": self.repeat_count,
             # Don't include rows_data for batch services to save space
             "rows_data": None
         }
+
+
+def normalize_query_for_deduplication(query: str, query_type: str) -> str:
+    """
+    Normalize a query for deduplication by removing values from WHERE predicates.
+    Creates a simplified pattern for quick identification of similar queries.
+    """
+    import re
+    
+    # Start with the original query
+    normalized = query.strip()
+    
+    # Convert to uppercase for consistent comparison
+    normalized = normalized.upper()
+    
+    # Focus on WHERE predicates - remove values but keep structure
+    # Pattern: column = 'value' -> column = 
+    normalized = re.sub(r"(\w+\s*=\s*)'[^']*'", r"\1", normalized)
+    
+    # Pattern: column = "value" -> column = 
+    normalized = re.sub(r'(\w+\s*=\s*)"[^"]*"', r"\1", normalized)
+    
+    # Pattern: column = 123 -> column = 
+    normalized = re.sub(r'(\w+\s*=\s*)\d+(\.\d+)?', r"\1", normalized)
+    
+    # Pattern: column IN ('val1', 'val2') -> column IN ()
+    normalized = re.sub(r'(\bIN\s*\()\s*[^)]+(\))', r'\1\2', normalized)
+    
+    # Pattern: column BETWEEN val1 AND val2 -> column BETWEEN AND 
+    normalized = re.sub(r'(\bBETWEEN\s+)[^A]+(\bAND\s+)[^\s]+', r'\1\2', normalized)
+    
+    # Replace ? parameter placeholders (already normalized for prepared statements)
+    
+    # Normalize whitespace
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    
+    return normalized
 
 
 class CassandraConnection:
@@ -141,6 +187,13 @@ class CassandraConnection:
             self._query_counter += 1
             return f"cql_{self._query_counter}_{int(time.time() * 1000)}"
     
+    def _find_existing_query_metric(self, simplified_query: str) -> Optional[QueryMetrics]:
+        """Find existing query metric with the same simplified query pattern"""
+        for metric in self._query_metrics:
+            if metric.simplified_query_text == simplified_query:
+                return metric
+        return None
+    
     def execute_query(self, query: str, parameters: Optional[List[Any]] = None, 
                      max_retries: int = 3, query_description: Optional[str] = None, 
                      representative_query: Optional[str] = None) -> Any:
@@ -160,75 +213,94 @@ class CassandraConnection:
     def _execute_single_query(self, query: str, parameters: Optional[List[Any]] = None,
                              query_description: Optional[str] = None, max_retries: int = 3) -> Any:
         """Execute a single CQL query and capture metrics"""
-        query_id = self._generate_query_id()
         
-        # Format the query using sqlparse
-        formatted_query = None
-        try:
-            formatted_query = sqlparse.format(query, reindent=True, keyword_case='upper')
-        except Exception as e:
-            logger.debug(f"Could not format CQL query with sqlparse: {e}")
-            formatted_query = query  # Fallback to original query
+        # Create simplified query for deduplication
+        simplified_query = normalize_query_for_deduplication(query, "HCD")
         
-        metrics = QueryMetrics(
-            query_id=query_id,
-            query_text=query,
-            formatted_query_text=formatted_query,
-            query_description=query_description,
-            query_type="HCD",
-            parameters=parameters,
-            start_time=datetime.now(timezone.utc),
-            end_time=None,
-            execution_time_ms=None,
-            rows_returned=None,
-            success=False,
-            error_message=None,
-            prepared=False
-        )
+        # Check if we already have metrics for this query pattern
+        existing_metrics = self._find_existing_query_metric(simplified_query)
         
-        # Store metrics
-        self._query_metrics.append(metrics)
+        if existing_metrics:
+            # Increment repeat count and update timing
+            existing_metrics.repeat_count += 1
+            existing_metrics.start_time = datetime.now(timezone.utc)  # Update to latest execution time
+            
+            logger.debug(f"Found existing query pattern, incremented count to {existing_metrics.repeat_count}")
+            current_metrics = existing_metrics
+        else:
+            # Create new metrics for this query pattern
+            query_id = self._generate_query_id()
+            
+            # Format the query using sqlparse
+            formatted_query = None
+            try:
+                formatted_query = sqlparse.format(query, reindent=True, keyword_case='upper')
+            except Exception as e:
+                logger.debug(f"Could not format CQL query with sqlparse: {e}")
+                formatted_query = query  # Fallback to original query
+            
+            current_metrics = QueryMetrics(
+                query_id=query_id,
+                query_text=query,
+                formatted_query_text=formatted_query,
+                simplified_query_text=simplified_query,
+                query_description=query_description,
+                query_type="HCD",
+                parameters=parameters,
+                start_time=datetime.now(timezone.utc),
+                end_time=None,
+                execution_time_ms=None,
+                rows_returned=None,
+                success=False,
+                error_message=None,
+                prepared=False,
+                repeat_count=1
+            )
+            
+            # Store new metrics
+            self._query_metrics.append(current_metrics)
+            logger.debug(f"Created new query metric {query_id} for pattern. Total metrics: {len(self._query_metrics)}")
         
         start_time = time.time()
         result = None
         
         for attempt in range(max_retries):
             try:
-                metrics.retry_count = attempt
+                current_metrics.retry_count = attempt
                 
                 if parameters:
                     # Use prepared statement
-                    metrics.prepared = True
+                    current_metrics.prepared = True
                     prepared = self.session.prepare(query)
                     result = self.session.execute(prepared, parameters)
                 else:
                     # Execute directly
-                    metrics.prepared = False
+                    current_metrics.prepared = False
                     result = self.session.execute(query)
                 
                 # Calculate execution time
                 end_time = time.time()
-                metrics.end_time = datetime.now(timezone.utc)
-                metrics.execution_time_ms = (end_time - start_time) * 1000
+                current_metrics.end_time = datetime.now(timezone.utc)
+                current_metrics.execution_time_ms = (end_time - start_time) * 1000
                 
                 # Count rows returned
                 try:
                     result_list = list(result)
-                    metrics.rows_returned = len(result_list)
-                    metrics.success = True
+                    current_metrics.rows_returned = len(result_list)
+                    current_metrics.success = True
                     
-                    logger.debug(f"Query {query_id} completed successfully: {metrics.rows_returned} rows in {metrics.execution_time_ms:.2f}ms")
+                    logger.debug(f"Query {current_metrics.query_id} completed successfully: {current_metrics.rows_returned} rows in {current_metrics.execution_time_ms:.2f}ms")
                     return result_list
                     
                 except Exception as count_error:
-                    logger.warning(f"Could not count rows for query {query_id}: {count_error}")
-                    metrics.rows_returned = None
-                    metrics.success = True
+                    logger.warning(f"Could not count rows for query {current_metrics.query_id}: {count_error}")
+                    current_metrics.rows_returned = None
+                    current_metrics.success = True
                     return result
                 
             except Exception as e:
-                logger.warning(f"Query {query_id} attempt {attempt + 1} failed: {e}")
-                metrics.error_message = str(e)
+                logger.warning(f"Query {current_metrics.query_id} attempt {attempt + 1} failed: {e}")
+                current_metrics.error_message = str(e)
                 
                 if attempt < max_retries - 1:
                     # Reset connection and retry
@@ -237,10 +309,10 @@ class CassandraConnection:
                     continue
                 else:
                     # Final attempt failed
-                    metrics.end_time = datetime.now(timezone.utc)
-                    metrics.execution_time_ms = (time.time() - start_time) * 1000
-                    metrics.success = False
-                    logger.error(f"Query {query_id} failed after {max_retries} attempts")
+                    current_metrics.end_time = datetime.now(timezone.utc)
+                    current_metrics.execution_time_ms = (time.time() - start_time) * 1000
+                    current_metrics.success = False
+                    logger.error(f"Query {current_metrics.query_id} failed after {max_retries} attempts")
                     raise
         
         return result
@@ -297,6 +369,7 @@ class CassandraConnection:
             query_id=batch_query_id,
             query_text=combined_query_text,
             formatted_query_text=combined_query_text,
+            simplified_query_text=combined_query_text,  # Batches are unique by nature
             query_description=query_description or 'Batch operation',
             query_type="HCD",
             parameters=None,  # Don't store parameters for batch operations
@@ -306,7 +379,8 @@ class CassandraConnection:
             rows_returned=0,  # Batch operations don't return rows
             success=False,
             error_message=None,
-            prepared=True  # Batch queries are typically prepared
+            prepared=True,  # Batch queries are typically prepared
+            repeat_count=1
         )
         
         self._query_metrics.append(metrics)
@@ -417,44 +491,70 @@ class PrestoConnection:
             self._query_counter += 1
             return f"presto_{self._query_counter}_{int(time.time() * 1000)}"
     
+    def _find_existing_query_metric(self, simplified_query: str) -> Optional[QueryMetrics]:
+        """Find existing query metric with the same simplified query pattern"""
+        for metric in self._query_metrics:
+            if metric.simplified_query_text == simplified_query:
+                return metric
+        return None
+    
     def execute_query(self, query: str, parameters: Optional[List[Any]] = None,
                      max_retries: int = 3, query_description: Optional[str] = None) -> Any:
         """Execute a Presto query and capture metrics"""
-        query_id = self._generate_query_id()
         
-        # Format the query using sqlparse
-        formatted_query = None
-        try:
-            formatted_query = sqlparse.format(query, reindent=True, keyword_case='upper')
-        except Exception as e:
-            logger.debug(f"Could not format Presto query with sqlparse: {e}")
-            formatted_query = query  # Fallback to original query
+        # Create simplified query for deduplication
+        simplified_query = normalize_query_for_deduplication(query, "Presto")
         
-        metrics = QueryMetrics(
-            query_id=query_id,
-            query_text=query,
-            formatted_query_text=formatted_query,
-            query_description=query_description,
-            query_type="Presto",
-            parameters=parameters,
-            start_time=datetime.now(timezone.utc),
-            end_time=None,
-            execution_time_ms=None,
-            rows_returned=None,
-            success=False,
-            error_message=None,
-            prepared=False
-        )
+        # Check if we already have metrics for this query pattern
+        existing_metrics = self._find_existing_query_metric(simplified_query)
         
-        # Store metrics
-        self._query_metrics.append(metrics)
+        if existing_metrics:
+            # Increment repeat count and update timing
+            existing_metrics.repeat_count += 1
+            existing_metrics.start_time = datetime.now(timezone.utc)  # Update to latest execution time
+            
+            logger.debug(f"Found existing Presto query pattern, incremented count to {existing_metrics.repeat_count}")
+            current_metrics = existing_metrics
+        else:
+            # Create new metrics for this query pattern
+            query_id = self._generate_query_id()
+            
+            # Format the query using sqlparse
+            formatted_query = None
+            try:
+                formatted_query = sqlparse.format(query, reindent=True, keyword_case='upper')
+            except Exception as e:
+                logger.debug(f"Could not format Presto query with sqlparse: {e}")
+                formatted_query = query  # Fallback to original query
+            
+            current_metrics = QueryMetrics(
+                query_id=query_id,
+                query_text=query,
+                formatted_query_text=formatted_query,
+                simplified_query_text=simplified_query,
+                query_description=query_description,
+                query_type="Presto",
+                parameters=parameters,
+                start_time=datetime.now(timezone.utc),
+                end_time=None,
+                execution_time_ms=None,
+                rows_returned=None,
+                success=False,
+                error_message=None,
+                prepared=False,
+                repeat_count=1
+            )
+            
+            # Store new metrics
+            self._query_metrics.append(current_metrics)
+            logger.debug(f"Created new Presto query metric {query_id} for pattern. Total metrics: {len(self._query_metrics)}")
         
         start_time = time.time()
         result = None
         
         for attempt in range(max_retries):
             try:
-                metrics.retry_count = attempt
+                current_metrics.retry_count = attempt
                 
                 cursor = self.connection.cursor()
                 cursor.execute(query, parameters)
@@ -462,19 +562,19 @@ class PrestoConnection:
                 
                 # Calculate execution time
                 end_time = time.time()
-                metrics.end_time = datetime.now(timezone.utc)
-                metrics.execution_time_ms = (end_time - start_time) * 1000
+                current_metrics.end_time = datetime.now(timezone.utc)
+                current_metrics.execution_time_ms = (end_time - start_time) * 1000
                 
                 # Count rows returned
-                metrics.rows_returned = len(result) if result else 0
-                metrics.success = True
+                current_metrics.rows_returned = len(result) if result else 0
+                current_metrics.success = True
                 
-                logger.debug(f"Query {query_id} completed successfully: {metrics.rows_returned} rows in {metrics.execution_time_ms:.2f}ms")
+                logger.debug(f"Query {current_metrics.query_id} completed successfully: {current_metrics.rows_returned} rows in {current_metrics.execution_time_ms:.2f}ms")
                 return result
                 
             except Exception as e:
-                logger.warning(f"Query {query_id} attempt {attempt + 1} failed: {e}")
-                metrics.error_message = str(e)
+                logger.warning(f"Query {current_metrics.query_id} attempt {attempt + 1} failed: {e}")
+                current_metrics.error_message = str(e)
                 
                 if attempt < max_retries - 1:
                     # Reset connection and retry
@@ -483,10 +583,10 @@ class PrestoConnection:
                     continue
                 else:
                     # Final attempt failed
-                    metrics.end_time = datetime.now(timezone.utc)
-                    metrics.execution_time_ms = (time.time() - start_time) * 1000
-                    metrics.success = False
-                    logger.error(f"Query {query_id} failed after {max_retries} attempts")
+                    current_metrics.end_time = datetime.now(timezone.utc)
+                    current_metrics.execution_time_ms = (time.time() - start_time) * 1000
+                    current_metrics.success = False
+                    logger.error(f"Query {current_metrics.query_id} failed after {max_retries} attempts")
                     raise
         
         return result
