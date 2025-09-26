@@ -190,6 +190,7 @@ function addQueryToPanel(method, url, status = 'pending', queryMetrics = null) {
         formatted_query_text: query.formatted_query_text || 'Query text not available',
         parameters: query.parameters || [],
         rowsReturned: query.rows_returned || 0,
+        rowsData: query.rows_data || [],
         executionTime: executionTime,
         queryType: queryType,
         timestamp: timestamp,
@@ -411,6 +412,76 @@ function initializeEnhancedFetch() {
 }
 
 /**
+ * Generate HTML table for row data
+ * @param {Array} rowsData - Array of row objects 
+ * @returns {string} HTML string for the table
+ */
+function generateRowDataTable(rowsData) {
+  if (!rowsData || rowsData.length === 0) {
+    return '<div class="text-muted">No rows returned</div>';
+  }
+  
+  // Get all unique column names from all rows
+  const allColumns = new Set();
+  rowsData.forEach(row => {
+    if (row && typeof row === 'object') {
+      Object.keys(row).forEach(key => allColumns.add(key));
+    }
+  });
+  
+  const columns = Array.from(allColumns).sort();
+  
+  if (columns.length === 0) {
+    return '<div class="text-muted">No column data available</div>';
+  }
+  
+  let tableHtml = `
+    <div class="table-responsive">
+      <table class="table table-sm table-striped">
+        <thead class="table-dark">
+          <tr>`;
+  
+  // Add header columns
+  columns.forEach(column => {
+    tableHtml += `<th scope="col">${column}</th>`;
+  });
+  
+  tableHtml += `
+          </tr>
+        </thead>
+        <tbody>`;
+  
+  // Add data rows
+  rowsData.forEach((row, rowIndex) => {
+    tableHtml += '<tr>';
+    columns.forEach(column => {
+      let cellValue = '';
+      if (row && typeof row === 'object' && row.hasOwnProperty(column)) {
+        cellValue = row[column];
+        // Handle null values
+        if (cellValue === null || cellValue === undefined) {
+          cellValue = '<span class="text-muted">null</span>';
+        } else {
+          // Escape HTML and wrap in spans for styling
+          cellValue = String(cellValue).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+      } else {
+        cellValue = '<span class="text-muted">-</span>';
+      }
+      tableHtml += `<td>${cellValue}</td>`;
+    });
+    tableHtml += '</tr>';
+  });
+  
+  tableHtml += `
+        </tbody>
+      </table>
+    </div>`;
+  
+  return tableHtml;
+}
+
+/**
  * Show the query details panel with information for a specific query
  * @param {string} queryId - The ID of the query to show details for
  */
@@ -477,7 +548,7 @@ function showQueryDetails(queryId) {
       <h6 class="query-details-section-title">
         <i class="bi bi-file-text me-2"></i>Query
       </h6>
-      <div class="query-details-box p-0">
+      <div class="query-details-box p-09">
         <pre><code class="language-sql">${queryData.formatted_query_text}</code></pre>
       </div>
     </div>
@@ -493,12 +564,13 @@ function showQueryDetails(queryId) {
     
     <div class="query-details-section">
       <h6 class="query-details-section-title">
-        <i class="bi bi-table me-2"></i>Results
+        <i class="bi bi-table me-2"></i>Results - ${queryData.rowsReturned.toLocaleString()} Rows Returned
       </h6>
-      <div class="query-details-row-info">
-        <span class="query-details-label">Rows returned:</span>
-        <span class="query-details-value">${queryData.rowsReturned.toLocaleString()}</span>
-      </div>
+      ${queryData.rowsReturned > 0 ? `
+        <div class="mt-3">
+          ${generateRowDataTable(queryData.rowsData)}
+        </div>
+      ` : ''}
     </div>
     
     <div class="query-details-section">

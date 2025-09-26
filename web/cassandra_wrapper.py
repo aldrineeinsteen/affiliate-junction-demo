@@ -36,6 +36,7 @@ class QueryMetrics:
     error_message: Optional[str]
     prepared: bool
     retry_count: int = 0
+    rows_data: Optional[List[Any]] = None
     
     @property
     def formatted_query_text(self) -> str:
@@ -62,6 +63,53 @@ class QueryMetrics:
             # If formatting fails, return original query
             return query
     
+    @staticmethod
+    def _format_value(value: Any) -> str:
+        """Format a single value for display, handling truncation and binary data"""
+        if value is None:
+            return None
+        
+        # Handle binary data
+        if isinstance(value, (bytes, bytearray)):
+            return f"<binary: {len(value)} bytes>"
+        
+        # Convert to string
+        str_value = str(value)
+        
+        # Truncate if longer than 30 characters
+        if len(str_value) > 30:
+            return str_value[:30] + "..."
+        
+        return str_value
+    
+    def _format_row_data(self) -> Optional[List[Dict[str, Any]]]:
+        """Format rows data for JSON serialization with truncation and binary handling"""
+        if not self.rows_data:
+            return None
+        
+        formatted_rows = []
+        for row in self.rows_data:
+            if hasattr(row, '_asdict'):
+                # Cassandra Row object - convert to dict
+                row_dict = row._asdict()
+                formatted_row = {key: self._format_value(value) for key, value in row_dict.items()}
+            elif hasattr(row, '__dict__'):
+                # Object with attributes
+                formatted_row = {key: self._format_value(value) for key, value in row.__dict__.items()}
+            elif isinstance(row, dict):
+                # Already a dictionary
+                formatted_row = {key: self._format_value(value) for key, value in row.items()}
+            elif hasattr(row, '__iter__') and not isinstance(row, (str, bytes)):
+                # Iterable (tuple, list, etc.) - convert to indexed dict
+                formatted_row = {f"col_{i}": self._format_value(value) for i, value in enumerate(row)}
+            else:
+                # Single value
+                formatted_row = {"value": self._format_value(row)}
+            
+            formatted_rows.append(formatted_row)
+        
+        return formatted_rows
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert metrics to dictionary for JSON serialization"""
         return {
@@ -78,7 +126,8 @@ class QueryMetrics:
             "success": self.success,
             "error_message": self.error_message,
             "prepared": self.prepared,
-            "retry_count": self.retry_count
+            "retry_count": self.retry_count,
+            "rows_data": self._format_row_data()[:10] if self.rows_data else None  # Limit to first 10 rows
         }
 
 
@@ -216,11 +265,12 @@ class CassandraQueryWrapper:
                 metrics.end_time = datetime.now(timezone.utc)
                 metrics.execution_time_ms = (end_time - start_time) * 1000
                 
-                # Count rows returned
+                # Count rows returned and store row data
                 try:
                     # Convert to list to count rows (this consumes the result)
                     result_list = list(result)
                     metrics.rows_returned = len(result_list)
+                    metrics.rows_data = result_list  # Store the actual row data
                     metrics.success = True
                     
                     logger.debug(f"Query {query_id} completed successfully: {metrics.rows_returned} rows in {metrics.execution_time_ms:.2f}ms")
@@ -232,6 +282,7 @@ class CassandraQueryWrapper:
                     # If we can't count rows, still mark as successful
                     logger.warning(f"Could not count rows for query {query_id}: {count_error}")
                     metrics.rows_returned = None
+                    metrics.rows_data = None
                     metrics.success = True
                     return result
                 
@@ -300,10 +351,11 @@ class CassandraQueryWrapper:
             metrics.end_time = datetime.now(timezone.utc)
             metrics.execution_time_ms = (end_time - start_time) * 1000
             
-            # Count rows returned
+            # Count rows returned and store row data
             try:
                 result_list = list(result)
                 metrics.rows_returned = len(result_list)
+                metrics.rows_data = result_list  # Store the actual row data
                 metrics.success = True
                 
                 logger.debug(f"Prepared query {query_id} completed successfully: {metrics.rows_returned} rows in {metrics.execution_time_ms:.2f}ms")
@@ -312,6 +364,7 @@ class CassandraQueryWrapper:
             except Exception as count_error:
                 logger.warning(f"Could not count rows for prepared query {query_id}: {count_error}")
                 metrics.rows_returned = None
+                metrics.rows_data = None
                 metrics.success = True
                 return result
             

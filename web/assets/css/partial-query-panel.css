@@ -509,6 +509,61 @@
   padding-left: 9px; /* Adjust padding to account for border */
 }
 
+/* Data table styles within query details */
+.query-details-section .table-responsive {
+  max-height: 400px;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
+.query-details-section .table {
+  margin-bottom: 0;
+  font-size: 11px;
+}
+
+.query-details-section .table th {
+  background-color: #f1f8ff;
+  color: #495057;
+  border-color: #dee2e6;
+  border-right: 1px solid #dee2e6;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 10px;
+  padding: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.query-details-section .table th:last-child {
+  border-right: none;
+}
+
+.query-details-section .table td {
+  padding: 6px 8px;
+  vertical-align: top;
+  word-break: break-word;
+  max-width: 200px;
+}
+
+.query-details-section .table tbody tr:nth-of-type(odd) {
+  background-color: transparent;
+}
+
+.query-details-section .table tbody tr:hover {
+  background-color: transparent;
+}
+
+/* Responsive table adjustments */
+@media (max-width: 768px) {
+  .query-details-section .table td {
+    max-width: 150px;
+    font-size: 10px;
+  }
+}
+
 /* Mobile responsiveness for query details panel */
 @media (max-width: 1200px) {
   .query-details-panel {
