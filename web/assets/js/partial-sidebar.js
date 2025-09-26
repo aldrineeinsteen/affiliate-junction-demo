@@ -182,6 +182,216 @@ function initializeSidebar() {
   loadAdvertisers();
   // Load publishers dropdown
   loadPublishers();
+  // Initialize service health indicators
+  initializeServiceHealth();
+}
+
+/**
+ * Initialize and start service health monitoring
+ */
+function initializeServiceHealth() {
+  // Check if container exists
+  const container = document.getElementById('service-health-indicators');
+  if (!container) {
+    console.error("Service health container not found!");
+    return;
+  }
+  
+  // Load initial service health
+  loadServiceHealth();
+  
+  // Set up periodic refresh (every 30 seconds)
+  setInterval(loadServiceHealth, 30000);
+}
+
+/**
+ * Load and display service health indicators
+ */
+async function loadServiceHealth() {
+  try {
+    const response = await fetch("/api/services");
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    // Parse JSON response
+    const data = await response.json();
+    
+    // Update the service health indicators
+    updateServiceHealthDisplay(data.services || []);
+    
+  } catch (error) {
+    console.error("Error loading service health:", error);
+    // Show error in the health indicators container
+    showServiceHealthError();
+  }
+}
+
+/**
+ * Update the service health indicators display
+ * @param {Array} services - Array of service objects
+ */
+function updateServiceHealthDisplay(services) {
+  const container = document.getElementById('service-health-indicators');
+  
+  if (!container) {
+    console.warn('Service health indicators container not found');
+    return;
+  }
+  
+  // Clear existing indicators
+  container.innerHTML = '';
+  
+  if (!services || services.length === 0) {
+    container.innerHTML = '<div class="text-muted small">No services found</div>';
+    return;
+  }
+  
+  // Sort services alphabetically
+  const sortedServices = services.sort((a, b) => a.name.localeCompare(b.name));
+  
+  // Filter and create health indicators - only show green (healthy) services
+  const healthyServices = sortedServices.filter(service => {
+    const healthStatus = calculateHealthStatus(service.last_updated);
+    return healthStatus.status === 'green';
+  });
+  
+  if (healthyServices.length === 0) {
+    container.innerHTML = '<div class="text-muted small">No healthy services</div>';
+    return;
+  }
+  
+  // Create health indicators for healthy services only
+  healthyServices.forEach(service => {
+    const indicator = createServiceHealthIndicator(service);
+    container.appendChild(indicator);
+  });
+}
+
+/**
+ * Create a health indicator for a service
+ * @param {Object} service - Service object
+ * @returns {HTMLElement} Health indicator element
+ */
+function createServiceHealthIndicator(service) {
+  const indicator = document.createElement('div');
+  indicator.className = 'service-health-indicator d-flex align-items-center mb-2';
+  
+  // Calculate health status
+  const healthStatus = calculateHealthStatus(service.last_updated);
+  
+  // Create dot element
+  const dot = document.createElement('span');
+  dot.className = `service-health-dot rounded-circle me-2 ${healthStatus.class}`;
+  dot.setAttribute('data-bs-toggle', 'tooltip');
+  dot.setAttribute('data-bs-placement', 'right');
+  dot.setAttribute('title', `${service.name}: ${healthStatus.tooltip}`);
+  
+  // Make dot clickable
+  dot.style.cursor = 'pointer';
+  dot.addEventListener('click', () => {
+    navigateToService(service.name);
+  });
+  
+  // Create service name label (optional, can be hidden with CSS)
+  const label = document.createElement('span');
+  label.className = 'service-health-label text-muted small';
+  label.textContent = service.name;
+  label.style.cursor = 'pointer';
+  label.addEventListener('click', () => {
+    navigateToService(service.name);
+  });
+  
+  indicator.appendChild(dot);
+  indicator.appendChild(label);
+  
+  // Initialize tooltip
+  if (window.bootstrap && window.bootstrap.Tooltip) {
+    new window.bootstrap.Tooltip(dot);
+  }
+  
+  return indicator;
+}
+
+/**
+ * Calculate health status based on last updated timestamp
+ * @param {number} lastUpdated - Age in seconds since last update (not timestamp)
+ * @returns {Object} Health status with class and tooltip
+ */
+function calculateHealthStatus(lastUpdated) {
+  if (lastUpdated === null || lastUpdated === undefined) {
+    return {
+      class: 'service-health-red',
+      tooltip: 'Never updated',
+      status: 'red'
+    };
+  }
+  
+  // lastUpdated is already the age in seconds, not a timestamp
+  const ageSeconds = lastUpdated;
+  
+  if (ageSeconds > 180) { // More than 3 minutes
+    return {
+      class: 'service-health-red',
+      tooltip: `Last updated ${formatAge(ageSeconds)} ago - Service may be down`,
+      status: 'red'
+    };
+  } else if (ageSeconds > 90) { // More than 90 seconds
+    return {
+      class: 'service-health-yellow',
+      tooltip: `Last updated ${formatAge(ageSeconds)} ago - Service running slowly`,
+      status: 'yellow'
+    };
+  } else {
+    return {
+      class: 'service-health-green',
+      tooltip: `Last updated ${formatAge(ageSeconds)} ago - Service healthy`,
+      status: 'green'
+    };
+  }
+}
+
+/**
+ * Format age in human readable format
+ * @param {number} seconds - Age in seconds
+ * @returns {string} Formatted age string
+ */
+function formatAge(seconds) {
+  if (seconds < 60) {
+    return `${seconds} second${seconds !== 1 ? 's' : ''}`;
+  } else if (seconds < 3600) {
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+  } else {
+    const hours = Math.floor(seconds / 3600);
+    return `${hours} hour${hours !== 1 ? 's' : ''}`;
+  }
+}
+
+/**
+ * Navigate to service details page
+ * @param {string} serviceName - Name of the service
+ */
+function navigateToService(serviceName) {
+  // Navigate to services page with the specific service tab
+  window.location.href = `/services#${serviceName}`;
+}
+
+/**
+ * Show error message in service health container
+ */
+function showServiceHealthError() {
+  const container = document.getElementById('service-health-indicators');
+  
+  if (container) {
+    container.innerHTML = `
+      <div class="text-danger small d-flex align-items-center">
+        <i class="bi bi-exclamation-triangle me-2"></i>
+        Error loading service status
+      </div>
+    `;
+  }
 }
 
 // Auto-initialize if DOM is already loaded, otherwise wait for DOMContentLoaded

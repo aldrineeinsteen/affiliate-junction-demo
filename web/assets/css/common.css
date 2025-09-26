@@ -11,3 +11,111 @@ body {
   color: #495057;
   font-weight: 600;
 }
+
+/* Service Health Indicators */
+.service-health-grid {
+  max-height: calc(90vh - 120px);
+  overflow-y: auto;
+}
+
+.service-health-indicator {
+  padding: 0.25rem 0;
+  border-radius: 0.25rem;
+  transition: background-color 0.2s ease;
+}
+
+.service-health-indicator:hover {
+  background-color: #f8f9fa;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}
+
+.service-health-dot {
+  width: 12px;
+  height: 12px;
+  display: inline-block;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.service-health-dot:hover {
+  transform: scale(1.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Health status colors */
+.service-health-green {
+  background-color: #28a745;
+  border-color: #1e7e34;
+}
+
+.service-health-yellow {
+  background-color: #ffc107;
+  border-color: #d39e00;
+}
+
+.service-health-red {
+  background-color: #dc3545;
+  border-color: #bd2130;
+}
+
+/* Pulsing animation for red status */
+.service-health-red {
+  animation: pulse-red 2s ease-in-out infinite;
+}
+
+@keyframes pulse-red {
+  0% {
+    box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(220, 53, 69, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+  }
+}
+
+/* Service health label */
+.service-health-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  transition: color 0.2s ease;
+  line-height: 1.2;
+}
+
+.service-health-indicator:hover .service-health-label {
+  color: #495057 !important;
+}
+
+/* Compact view option - hide labels */
+.service-health-grid.compact .service-health-label {
+  display: none;
+}
+
+.service-health-grid.compact .service-health-indicator {
+  display: inline-flex;
+  margin-right: 0.25rem;
+  margin-bottom: 0;
+  padding: 0;
+}
+
+.service-health-grid.compact .service-health-dot {
+  margin-right: 0;
+  width: 8px;
+  height: 8px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .service-health-dot {
+    width: 10px;
+    height: 10px;
+  }
+  
+  .service-health-label {
+    font-size: 0.7rem;
+  }
+}

@@ -2,7 +2,7 @@ import os
 import logging
 import prestodb
 from dotenv import load_dotenv
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import FastAPI, Request, HTTPException, Depends, Form
@@ -493,6 +493,75 @@ def advertiser_dashboard(request: Request, advertiser_id: str):
 
 
 # --- Services API endpoints ---
+@app.get("/api/services")
+def get_services_api(request: Request, current_user: str = Depends(require_auth)):
+    """API endpoint to get all services data in JSON format"""
+    with cassandra_wrapper.request_context():
+        try:
+            # Query the services table
+            cassandra_session = hcd_operations.get_cassandra_session()
+            query = "SELECT name, description, last_updated, stats, settings FROM affiliate_junction.services"
+            result = cassandra_session.execute(query)
+            
+            services = []
+            for row in result:
+                # Parse the stats JSON if it exists
+                parsed_stats = None
+                if row.stats:
+                    try:
+                        import json
+                        parsed_stats = json.loads(row.stats)
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.warning(f"Failed to parse stats JSON for service {row.name}: {e}")
+                        parsed_stats = None
+                
+                # Parse the settings JSON if it exists
+                parsed_settings = {}
+                if row.settings:
+                    try:
+                        import json
+                        parsed_settings = json.loads(row.settings)
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.warning(f"Failed to parse settings JSON for service {row.name}: {e}")
+                        parsed_settings = {}
+
+                services.append({
+                    'name': row.name,
+                    'description': row.description,
+                    'last_updated': int(datetime.now(timezone.utc).timestamp() - row.last_updated.replace(tzinfo=timezone.utc).timestamp()),
+                    'stats': row.stats,
+                    'settings': row.settings,
+                    'parsed_settings': parsed_settings,
+                    'parsed_stats': parsed_stats
+                })
+            
+            # Sort alphabetically by name
+            services.sort(key=lambda x: x['name'])
+            
+            # Get query metrics for this request
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return {
+                "services": services,
+                "query_metrics": query_metrics
+            }
+            
+        except Exception as e:
+            logger.error(f"Error fetching services data via API: {e}")
+            
+            # Still get query metrics even if there was an error
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Failed to fetch services data",
+                    "detail": str(e),
+                    "services": [],
+                    "query_metrics": query_metrics
+                }
+            )
+
 @app.get("/api/services/{service_name}/query-metrics")
 def get_service_query_metrics(service_name: str, request: Request):
     """Get query metrics for a specific service"""
