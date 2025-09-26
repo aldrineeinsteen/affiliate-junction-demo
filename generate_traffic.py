@@ -37,15 +37,17 @@ class SyntheticTrafficGenerator:
             'AFFILIATE_JUNCTION_HISTORY_MINS': int(os.getenv('AFFILIATE_JUNCTION_HISTORY_MINS')),
             'AFFILIATE_JUNCTION_TRAFFIC_MIN': int(os.getenv('AFFILIATE_JUNCTION_TRAFFIC_MIN')),
             'AFFILIATE_JUNCTION_SALES_MIN': int(os.getenv('AFFILIATE_JUNCTION_SALES_MIN')),
-            'AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT': int(os.getenv('AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT'))
+            'AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT': int(os.getenv('AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT')),
+            'AFFILIATE_JUNCTION_FRAUD_COOKIES_COUNT': int(os.getenv('AFFILIATE_JUNCTION_FRAUD_COOKIES_COUNT', '5')),
+            'AFFILIATE_JUNCTION_COHORTS': os.getenv('AFFILIATE_JUNCTION_COHORTS', 'TECH,FASHION,HEALTH,FINANCE,TRAVEL').split(','),
+            'AFFILIATE_JUNCTION_COHORT_SAME_PROBABILITY': float(os.getenv('AFFILIATE_JUNCTION_COHORT_SAME_PROBABILITY', '0.60')),
+            'AFFILIATE_JUNCTION_COHORT_DIFFERENT_PROBABILITY': float(os.getenv('AFFILIATE_JUNCTION_COHORT_DIFFERENT_PROBABILITY', '0.20')),
+            'AFFILIATE_JUNCTION_FRAUD_CROSS_CONTAMINATION_PROBABILITY': float(os.getenv('AFFILIATE_JUNCTION_FRAUD_CROSS_CONTAMINATION_PROBABILITY', '0.05')),
+            'AFFILIATE_JUNCTION_RANDOM_COOKIE_PROBABILITY': float(os.getenv('AFFILIATE_JUNCTION_RANDOM_COOKIE_PROBABILITY', '0.15'))
         }
         
-        # Generate indexes of string IDs for advertisers and publishers
-        self.advertisers = [f"AID_{i+1:06d}" for i in range(self.current_settings['AFFILIATE_JUNCTION_ADVERTISERS_COUNT'])]
-        self.publishers = [f"PID_{i+1:06d}" for i in range(self.current_settings['AFFILIATE_JUNCTION_PUBLISHERS_COUNT'])]
-        
-        # Generate pool of cookie IDs based on environment variable
-        self.cookie_ids = [f"CID_{i+1:06d}" for i in range(self.current_settings['AFFILIATE_JUNCTION_COOKIES_COUNT'])]
+        # Generate structured publisher and cookie data
+        self.generate_structured_data()
         
         # Initialize stats tracking with timeseries data structure
         self.stats_timeseries = {
@@ -62,7 +64,117 @@ class SyntheticTrafficGenerator:
             'sales_per_minute': []
         }
         
-        logger.info(f"Generated {len(self.advertisers)} advertisers, {len(self.publishers)} publishers, and {len(self.cookie_ids)} cookie IDs")
+        logger.info(f"Generated {len(self.advertisers)} advertisers, {len(self.publishers_data)} publishers across {len(self.cohorts)} cohorts")
+        logger.info(f"Created {len(self.fraud_cookies)} fraud cookies and {len(self.cohort_cookies)} cohort cookies")
+        logger.info(f"Using cohorts: {', '.join(self.cohorts)}")
+        
+    def generate_structured_data(self):
+        """Generate structured data with cohorts and fraud patterns"""
+        # Get cohorts from current settings
+        self.cohorts = self.current_settings['AFFILIATE_JUNCTION_COHORTS']
+        
+        # Generate advertisers (unchanged)
+        self.advertisers = [f"AID_{i+1:06d}" for i in range(self.current_settings['AFFILIATE_JUNCTION_ADVERTISERS_COUNT'])]
+        
+        # Generate publishers with cohort structure
+        self.publishers_data = {}
+        self.publishers = []  # Keep flat list for compatibility
+        
+        publishers_per_cohort = self.current_settings['AFFILIATE_JUNCTION_PUBLISHERS_COUNT'] // len(self.cohorts)
+        remaining_publishers = self.current_settings['AFFILIATE_JUNCTION_PUBLISHERS_COUNT'] % len(self.cohorts)
+        
+        for cohort_idx, cohort in enumerate(self.cohorts):
+            # Add extra publisher to first cohorts if there's a remainder
+            count = publishers_per_cohort + (1 if cohort_idx < remaining_publishers else 0)
+            
+            for i in range(count):
+                publisher_id = f"PID_{cohort}_{i+1:03d}"
+                self.publishers_data[publisher_id] = {
+                    'id': publisher_id,
+                    'cohort': cohort
+                }
+                self.publishers.append(publisher_id)
+        
+        # Generate fraud cookies (configurable count that always associate with specific publishers)
+        self.fraud_cookies = {}
+        fraud_count = min(self.current_settings['AFFILIATE_JUNCTION_FRAUD_COOKIES_COUNT'], len(self.publishers))
+        fraud_publishers = random.sample(self.publishers, fraud_count)
+        
+        for i, publisher_id in enumerate(fraud_publishers):
+            fraud_cookie_id = f"CID_FRAUD_{i+1:03d}"
+            self.fraud_cookies[fraud_cookie_id] = publisher_id
+        
+        # Generate cohort-based cookies
+        self.cohort_cookies = {}
+        cohort_cookie_count = min(self.current_settings['AFFILIATE_JUNCTION_COOKIES_COUNT'] - len(self.fraud_cookies), 
+                                 len(self.publishers) * 2)  # Up to 2 cookies per publisher
+        
+        cohort_cookies_per_publisher = max(1, cohort_cookie_count // len(self.publishers))
+        
+        cookie_counter = 1
+        for publisher_id in self.publishers:
+            cohort = self.publishers_data[publisher_id]['cohort']
+            
+            for j in range(cohort_cookies_per_publisher):
+                if cookie_counter > cohort_cookie_count:
+                    break
+                    
+                cohort_cookie_id = f"CID_{cohort}_{cookie_counter:06d}"
+                self.cohort_cookies[cohort_cookie_id] = cohort
+                cookie_counter += 1
+        
+        # Generate remaining random cookies
+        remaining_cookies_count = self.current_settings['AFFILIATE_JUNCTION_COOKIES_COUNT'] - len(self.fraud_cookies) - len(self.cohort_cookies)
+        self.random_cookies = []
+        
+        for i in range(remaining_cookies_count):
+            random_cookie_id = f"CID_RANDOM_{i+1:06d}"
+            self.random_cookies.append(random_cookie_id)
+        
+        # Create combined cookie pool for easy access
+        self.all_cookies = list(self.fraud_cookies.keys()) + list(self.cohort_cookies.keys()) + self.random_cookies
+        
+        cohort_distribution = ', '.join([f'{cohort}: {sum(1 for p in self.publishers_data.values() if p["cohort"] == cohort)}' for cohort in self.cohorts])
+        logger.info(f"Publisher cohort distribution: {cohort_distribution}")
+        logger.info(f"Cookie distribution: {len(self.fraud_cookies)} fraud, {len(self.cohort_cookies)} cohort, {len(self.random_cookies)} random")
+    
+    def get_cookie_for_publisher(self, publisher_id):
+        """Get a cookie ID based on publisher relationships and probabilities"""
+        # Check if this publisher has associated fraud cookies (always return fraud cookie)
+        for fraud_cookie, fraud_publisher in self.fraud_cookies.items():
+            if fraud_publisher == publisher_id:
+                return fraud_cookie
+        
+        # Get publisher cohort
+        publisher_cohort = self.publishers_data[publisher_id]['cohort']
+        
+        # Determine cookie selection with probabilities
+        rand = random.random()
+        
+        cohort_same_prob = self.current_settings['AFFILIATE_JUNCTION_COHORT_SAME_PROBABILITY']
+        cohort_diff_prob = cohort_same_prob + self.current_settings['AFFILIATE_JUNCTION_COHORT_DIFFERENT_PROBABILITY']
+        fraud_cross_prob = cohort_diff_prob + self.current_settings['AFFILIATE_JUNCTION_FRAUD_CROSS_CONTAMINATION_PROBABILITY']
+        
+        if rand < cohort_same_prob:  # Configurable chance - cohort cookie from same cohort
+            cohort_cookies_same = [cookie for cookie, cohort in self.cohort_cookies.items() if cohort == publisher_cohort]
+            if cohort_cookies_same:
+                return random.choice(cohort_cookies_same)
+        
+        elif rand < cohort_diff_prob:  # Configurable chance - cohort cookie from different cohort
+            cohort_cookies_different = [cookie for cookie, cohort in self.cohort_cookies.items() if cohort != publisher_cohort]
+            if cohort_cookies_different:
+                return random.choice(cohort_cookies_different)
+        
+        elif rand < fraud_cross_prob:  # Configurable chance - fraud cookie (cross-contamination)
+            if self.fraud_cookies:
+                return random.choice(list(self.fraud_cookies.keys()))
+        
+        # Remaining configurable chance - random cookie
+        if self.random_cookies:
+            return random.choice(self.random_cookies)
+        
+        # Fallback to any available cookie
+        return random.choice(self.all_cookies)
         
     def execute_schema(self):
         """Execute the Cassandra schema file to create keyspace and tables"""
@@ -73,9 +185,10 @@ class SyntheticTrafficGenerator:
             logger.error(f"Failed to execute schema: {e}")
             raise
     
+    
     def get_random_cookie_id(self):
-        """Get a random cookie ID from the predefined pool"""
-        return random.choice(self.cookie_ids)
+        """Get a random cookie ID from the predefined pool (legacy method for compatibility)"""
+        return random.choice(self.all_cookies)
     
     def connect_to_cassandra(self):
         """Establish connection to Cassandra cluster"""
@@ -157,13 +270,42 @@ class SyntheticTrafficGenerator:
             if service_record.settings:
                 new_settings = json.loads(service_record.settings)
                 
+                # Define type casting functions for each setting
+                type_casters = {
+                    'AFFILIATE_JUNCTION_ADVERTISERS_COUNT': int,
+                    'AFFILIATE_JUNCTION_PUBLISHERS_COUNT': int,
+                    'AFFILIATE_JUNCTION_COOKIES_COUNT': int,
+                    'AFFILIATE_JUNCTION_HISTORY_MINS': int,
+                    'AFFILIATE_JUNCTION_TRAFFIC_MIN': int,
+                    'AFFILIATE_JUNCTION_SALES_MIN': int,
+                    'AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT': int,
+                    'AFFILIATE_JUNCTION_FRAUD_COOKIES_COUNT': int,
+                    'AFFILIATE_JUNCTION_COHORTS': lambda x: x.split(',') if isinstance(x, str) else x,
+                    'AFFILIATE_JUNCTION_COHORT_SAME_PROBABILITY': float,
+                    'AFFILIATE_JUNCTION_COHORT_DIFFERENT_PROBABILITY': float,
+                    'AFFILIATE_JUNCTION_FRAUD_CROSS_CONTAMINATION_PROBABILITY': float,
+                    'AFFILIATE_JUNCTION_RANDOM_COOKIE_PROBABILITY': float
+                }
+                
                 # Check if settings have changed
                 settings_changed = False
                 for key, value in new_settings.items():
-                    if key in self.current_settings and self.current_settings[key] != value:
-                        logger.info(f"Setting {key} changed from {self.current_settings[key]} to {value}")
-                        self.current_settings[key] = value
-                        settings_changed = True
+                    if key in self.current_settings:
+                        # Cast to appropriate type
+                        if key in type_casters:
+                            try:
+                                typed_value = type_casters[key](value)
+                            except (ValueError, TypeError) as e:
+                                logger.warning(f"Failed to cast setting {key}={value} to appropriate type: {e}")
+                                continue
+                        else:
+                            typed_value = value
+                        
+                        # Check if the value has actually changed
+                        if self.current_settings[key] != typed_value:
+                            logger.info(f"Setting {key} changed from {self.current_settings[key]} to {typed_value}")
+                            self.current_settings[key] = typed_value
+                            settings_changed = True
                 
                 # If settings changed, regenerate the data pools
                 if settings_changed:
@@ -178,16 +320,10 @@ class SyntheticTrafficGenerator:
     def regenerate_data_pools(self):
         """Regenerate advertisers, publishers, and cookie pools based on updated settings"""
         try:
-            # Regenerate advertisers
-            self.advertisers = [f"AID_{i+1:06d}" for i in range(self.current_settings['AFFILIATE_JUNCTION_ADVERTISERS_COUNT'])]
+            # Regenerate all structured data
+            self.generate_structured_data()
             
-            # Regenerate publishers
-            self.publishers = [f"PID_{i+1:06d}" for i in range(self.current_settings['AFFILIATE_JUNCTION_PUBLISHERS_COUNT'])]
-            
-            # Regenerate cookie IDs
-            self.cookie_ids = [f"CID_{i+1:06d}" for i in range(self.current_settings['AFFILIATE_JUNCTION_COOKIES_COUNT'])]
-            
-            logger.info(f"Regenerated pools: {len(self.advertisers)} advertisers, {len(self.publishers)} publishers, {len(self.cookie_ids)} cookie IDs")
+            logger.info(f"Regenerated pools: {len(self.advertisers)} advertisers, {len(self.publishers)} publishers across {len(self.cohorts)} cohorts, {len(self.all_cookies)} total cookies")
             
         except Exception as e:
             logger.error(f"Failed to regenerate data pools: {e}")
@@ -210,7 +346,7 @@ class SyntheticTrafficGenerator:
                 'execution_time_seconds': (current_timestamp, round(execution_time, 2)),
                 'current_advertisers_count': (current_timestamp, len(self.advertisers)),
                 'current_publishers_count': (current_timestamp, len(self.publishers)),
-                'current_cookies_count': (current_timestamp, len(self.cookie_ids)),
+                'current_cookies_count': (current_timestamp, len(self.all_cookies)),
                 'traffic_per_minute': (current_timestamp, self.current_settings['AFFILIATE_JUNCTION_TRAFFIC_MIN']),
                 'sales_per_minute': (current_timestamp, self.current_settings['AFFILIATE_JUNCTION_SALES_MIN'])
             }
@@ -245,8 +381,8 @@ class SyntheticTrafficGenerator:
             logger.error(f"Failed to update service stats: {e}")
     
     def generate_synthetic_data(self):
-        """Generate synthetic traffic data"""
-        logger.info("Generating synthetic traffic data...")
+        """Generate synthetic traffic data with fraud patterns and cohort relationships"""
+        logger.info("Generating synthetic traffic data with cohort relationships...")
         
         # Get current time clipped to the minute
         now = datetime.now(timezone.utc)
@@ -262,7 +398,9 @@ class SyntheticTrafficGenerator:
         for _ in range(self.current_settings['AFFILIATE_JUNCTION_TRAFFIC_MIN']):
             publisher_id = random.choice(self.publishers)
             advertiser_id = random.choice(self.advertisers)
-            cookie_id = self.get_random_cookie_id()
+            
+            # Use structured cookie selection based on publisher relationships
+            cookie_id = self.get_cookie_for_publisher(publisher_id)
             
             # Create a composite key for aggregation
             key = (publisher_id, cookie_id, clipped_timestamp)
@@ -309,8 +447,10 @@ class SyntheticTrafficGenerator:
         
         for _ in range(self.current_settings['AFFILIATE_JUNCTION_SALES_MIN']):
             advertiser_id = random.choice(self.advertisers)
-            publisher_id = random.choice(self.publishers)  # Add publisher for conversions_by_minute
-            cookie_id = self.get_random_cookie_id()
+            publisher_id = random.choice(self.publishers)
+            
+            # For conversions, also use structured cookie selection to maintain relationships
+            cookie_id = self.get_cookie_for_publisher(publisher_id)
             
             conversion_data.append({
                 'advertisers_id': advertiser_id,
@@ -338,7 +478,13 @@ class SyntheticTrafficGenerator:
                 'conversion_id': conversion_id
             })
         
-        logger.info(f"Generated {len(impression_data)} aggregated impression records ({sum(record['impressions'] for record in impression_data)} total impressions), {len(impressions_by_minute_data)} minute-based impression records, {len(conversion_data)} conversion records, and {len(conversions_by_minute_data)} minute-based conversion records")
+        # Count fraud patterns for logging
+        fraud_impressions = sum(1 for record in impression_data if record['cookie_id'].startswith('CID_FRAUD_'))
+        cohort_impressions = sum(1 for record in impression_data if any(record['cookie_id'].startswith(f'CID_{cohort}_') for cohort in self.cohorts))
+        
+        logger.info(f"Generated {len(impression_data)} aggregated impression records ({sum(record['impressions'] for record in impression_data)} total impressions)")
+        logger.info(f"Pattern breakdown: {fraud_impressions} fraud patterns, {cohort_impressions} cohort patterns")
+        logger.info(f"Generated {len(impressions_by_minute_data)} minute-based impression records, {len(conversion_data)} conversion records, and {len(conversions_by_minute_data)} minute-based conversion records")
         
         # Insert data to Cassandra
         self.insert_data_to_cassandra(impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data)
@@ -478,6 +624,9 @@ class SyntheticTrafficGenerator:
             
             # Connect to databases
             self.connect_to_cassandra()
+            
+            # Insert initial service record with current settings
+            self.insert_service_record()
             
             # Main loop - no-op for now
             logger.info("Entering main loop...")
