@@ -2,12 +2,10 @@
 
 * Add publishers dashboard
 
+* Idenitfy fraud cohorts
 
+* Find similar advertisers thru cohorts
 
-
-* Remove html from js - keep in their own partials or as display:none in the main page
-
-* Refactor web and put api in its own file
-
+* compare traffic within a cohort
 
 
