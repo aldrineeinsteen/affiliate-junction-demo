@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS iceberg_data.affiliate_junction.conversions_identifie
     conversion_timestamp timestamp,
     impression_timestamp timestamp,
     time_to_conversion_seconds bigint,
-    created_at timestamp WITH TIME ZONE
+    created_at timestamp
 ) WITH (
     format = 'PARQUET',
     partitioning = ARRAY['hour(conversion_timestamp)', 'bucket(publishers_id, 10)']

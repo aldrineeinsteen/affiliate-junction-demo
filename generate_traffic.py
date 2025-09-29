@@ -7,7 +7,8 @@ import logging
 import random
 import uuid
 import json
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
+from collections import defaultdict, deque
 from cassandra.util import uuid_from_time
 
 # Import shared modules
@@ -19,6 +20,83 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+class CookieImpressionTracker:
+    """In-memory tracker for cookie impressions with sliding 90-minute window"""
+    
+    def __init__(self, window_minutes=90):
+        self.window_minutes = window_minutes
+        # cookie_id -> deque of impression timestamps
+        self.cookie_impressions = defaultdict(deque)
+        self.total_impressions_tracked = 0
+        self.cleanup_counter = 0
+        
+    def record_impression(self, cookie_id, timestamp):
+        """Record an impression for a cookie"""
+        self.cookie_impressions[cookie_id].append(timestamp)
+        self.total_impressions_tracked += 1
+        self.cleanup_counter += 1
+        
+        # Periodic cleanup every 1000 impressions to prevent memory bloat
+        if self.cleanup_counter >= 1000:
+            self._cleanup_all_cookies(timestamp)
+            self.cleanup_counter = 0
+    
+    def get_eligible_cookies(self, current_time):
+        """Get set of cookies that have impressions in the last window_minutes"""
+        eligible_cookies = set()
+        cutoff_time = current_time - timedelta(minutes=self.window_minutes)
+        
+        for cookie_id in list(self.cookie_impressions.keys()):
+            self._cleanup_old_impressions(cookie_id, current_time)
+            if self.cookie_impressions[cookie_id]:  # Has recent impressions
+                eligible_cookies.add(cookie_id)
+        
+        return eligible_cookies
+    
+    def has_recent_impression(self, cookie_id, current_time):
+        """Check if cookie has impression in the last window_minutes"""
+        if cookie_id not in self.cookie_impressions:
+            return False
+        
+        self._cleanup_old_impressions(cookie_id, current_time)
+        return len(self.cookie_impressions[cookie_id]) > 0
+    
+    def get_stats(self, current_time):
+        """Get tracking statistics"""
+        # Clean up before calculating stats
+        self._cleanup_all_cookies(current_time)
+        
+        eligible_cookies = len([cookie_id for cookie_id in self.cookie_impressions.keys() 
+                               if self.cookie_impressions[cookie_id]])
+        total_recent_impressions = sum(len(impressions) for impressions in self.cookie_impressions.values())
+        
+        return {
+            'eligible_cookies_count': eligible_cookies,
+            'total_recent_impressions': total_recent_impressions,
+            'total_impressions_tracked': self.total_impressions_tracked,
+            'tracked_cookies_count': len(self.cookie_impressions)
+        }
+    
+    def _cleanup_old_impressions(self, cookie_id, current_time):
+        """Remove impressions older than the window for a specific cookie"""
+        cutoff_time = current_time - timedelta(minutes=self.window_minutes)
+        impressions = self.cookie_impressions[cookie_id]
+        
+        while impressions and impressions[0] < cutoff_time:
+            impressions.popleft()
+        
+        # Remove empty entries to save memory
+        if not impressions:
+            del self.cookie_impressions[cookie_id]
+    
+    def _cleanup_all_cookies(self, current_time):
+        """Clean up old impressions for all cookies"""
+        # Make a copy of keys to avoid dictionary size change during iteration
+        cookie_ids = list(self.cookie_impressions.keys())
+        for cookie_id in cookie_ids:
+            self._cleanup_old_impressions(cookie_id, current_time)
 
 
 class SyntheticTrafficGenerator:
@@ -48,6 +126,11 @@ class SyntheticTrafficGenerator:
         
         # Generate structured publisher and cookie data
         self.generate_structured_data()
+        
+        # Initialize cookie impression tracker for attribution
+        self.cookie_tracker = CookieImpressionTracker(
+            window_minutes=self.current_settings['AFFILIATE_JUNCTION_HISTORY_MINS']
+        )
         
         # Initialize stats tracking with timeseries data structure
         self.stats_timeseries = {
@@ -323,12 +406,18 @@ class SyntheticTrafficGenerator:
             # Regenerate all structured data
             self.generate_structured_data()
             
+            # Reinitialize cookie tracker with updated window size
+            self.cookie_tracker = CookieImpressionTracker(
+                window_minutes=self.current_settings['AFFILIATE_JUNCTION_HISTORY_MINS']
+            )
+            
             logger.info(f"Regenerated pools: {len(self.advertisers)} advertisers, {len(self.publishers)} publishers across {len(self.cohorts)} cohorts, {len(self.all_cookies)} total cookies")
+            logger.info(f"Reinitialized cookie tracker with {self.current_settings['AFFILIATE_JUNCTION_HISTORY_MINS']}-minute attribution window")
             
         except Exception as e:
             logger.error(f"Failed to regenerate data pools: {e}")
     
-    def collect_iteration_stats(self, impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data, execution_time):
+    def collect_iteration_stats(self, impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data, execution_time, attribution_stats=None):
         """Collect stats from current iteration"""
         try:
             current_timestamp = int(time.time())
@@ -350,6 +439,15 @@ class SyntheticTrafficGenerator:
                 'traffic_per_minute': (current_timestamp, self.current_settings['AFFILIATE_JUNCTION_TRAFFIC_MIN']),
                 'sales_per_minute': (current_timestamp, self.current_settings['AFFILIATE_JUNCTION_SALES_MIN'])
             }
+            
+            # Add attribution stats if provided
+            if attribution_stats:
+                stats.update({
+                    'attribution_rate': (current_timestamp, round(attribution_stats['attribution_rate'], 3)),
+                    'successful_conversions': (current_timestamp, attribution_stats['successful_conversions']),
+                    'attempted_conversions': (current_timestamp, attribution_stats['attempted_conversions']),
+                    'eligible_cookies_count': (current_timestamp, attribution_stats['eligible_cookies_count'])
+                })
             
             return stats
             
@@ -402,6 +500,9 @@ class SyntheticTrafficGenerator:
             # Use structured cookie selection based on publisher relationships
             cookie_id = self.get_cookie_for_publisher(publisher_id)
             
+            # Record this impression in the attribution tracker
+            self.cookie_tracker.record_impression(cookie_id, now)
+            
             # Create a composite key for aggregation
             key = (publisher_id, cookie_id, clipped_timestamp)
             
@@ -445,52 +546,77 @@ class SyntheticTrafficGenerator:
         conversion_data = []
         conversions_by_minute_data = []
         
+        # Get cookies that have had impressions in the last 90 minutes
+        eligible_cookies = self.cookie_tracker.get_eligible_cookies(now)
+        
+        # Track attribution stats
+        attempted_conversions = 0
+        successful_conversions = 0
+        
         for _ in range(self.current_settings['AFFILIATE_JUNCTION_SALES_MIN']):
             advertiser_id = random.choice(self.advertisers)
             publisher_id = random.choice(self.publishers)
             
-            # For conversions, also use structured cookie selection to maintain relationships
+            # Try to get a cookie that has recent impressions for proper attribution
             cookie_id = self.get_cookie_for_publisher(publisher_id)
+            attempted_conversions += 1
             
-            conversion_data.append({
-                'advertisers_id': advertiser_id,
-                'timestamp': clipped_timestamp,
-                'cookie_id': cookie_id
-            })
-            
-            # Generate individual conversion for conversions_by_minute table
-            # Create a hash bucket based on advertiser_id for write distribution
-            bucket = hash(advertiser_id) % self.current_settings["AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT"]
-            
-            # Generate timeuuid for precise ordering
-            ts_uuid = uuid_from_time(now)
-            
-            # Generate unique conversion ID
-            conversion_id = uuid.uuid4()
-            
-            conversions_by_minute_data.append({
-                'bucket_date': bucket_date,
-                'bucket': bucket,
-                'ts': ts_uuid,
-                'publishers_id': publisher_id,
-                'advertisers_id': advertiser_id,
-                'cookie_id': cookie_id,
-                'conversion_id': conversion_id
-            })
+            # Only generate conversion if this cookie has had impressions in the last 90 minutes
+            if cookie_id in eligible_cookies:
+                successful_conversions += 1
+                
+                conversion_data.append({
+                    'advertisers_id': advertiser_id,
+                    'timestamp': clipped_timestamp,
+                    'cookie_id': cookie_id
+                })
+                
+                # Generate individual conversion for conversions_by_minute table
+                # Create a hash bucket based on advertiser_id for write distribution
+                bucket = hash(advertiser_id) % self.current_settings["AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT"]
+                
+                # Generate timeuuid for precise ordering
+                ts_uuid = uuid_from_time(now)
+                
+                # Generate unique conversion ID
+                conversion_id = uuid.uuid4()
+                
+                conversions_by_minute_data.append({
+                    'bucket_date': bucket_date,
+                    'bucket': bucket,
+                    'ts': ts_uuid,
+                    'publishers_id': publisher_id,
+                    'advertisers_id': advertiser_id,
+                    'cookie_id': cookie_id,
+                    'conversion_id': conversion_id
+                })
+        
+        # Store attribution stats for logging
+        attribution_stats = {
+            'attempted_conversions': attempted_conversions,
+            'successful_conversions': successful_conversions,
+            'eligible_cookies_count': len(eligible_cookies),
+            'attribution_rate': successful_conversions / attempted_conversions if attempted_conversions > 0 else 0
+        }
         
         # Count fraud patterns for logging
         fraud_impressions = sum(1 for record in impression_data if record['cookie_id'].startswith('CID_FRAUD_'))
         cohort_impressions = sum(1 for record in impression_data if any(record['cookie_id'].startswith(f'CID_{cohort}_') for cohort in self.cohorts))
         
+        # Get cookie tracker stats
+        tracker_stats = self.cookie_tracker.get_stats(now)
+        
         logger.info(f"Generated {len(impression_data)} aggregated impression records ({sum(record['impressions'] for record in impression_data)} total impressions)")
         logger.info(f"Pattern breakdown: {fraud_impressions} fraud patterns, {cohort_impressions} cohort patterns")
         logger.info(f"Generated {len(impressions_by_minute_data)} minute-based impression records, {len(conversion_data)} conversion records, and {len(conversions_by_minute_data)} minute-based conversion records")
+        logger.info(f"Attribution: {attribution_stats['successful_conversions']}/{attribution_stats['attempted_conversions']} conversions ({attribution_stats['attribution_rate']:.1%} rate), {attribution_stats['eligible_cookies_count']} eligible cookies")
+        logger.info(f"Cookie tracker: {tracker_stats['eligible_cookies_count']} cookies with recent impressions, {tracker_stats['total_recent_impressions']} total recent impressions")
         
         # Insert data to Cassandra
         self.insert_data_to_cassandra(impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data)
         
-        # Return data for stats collection
-        return impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data
+        # Return data for stats collection (include attribution stats)
+        return impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data, attribution_stats
     
     def execute_batch_in_chunks(self, data, prepared_statement, param_extractor, batch_size=10000, operation_name="records", representative_query=None):
         """Execute batch operations in chunks to avoid Cassandra batch size limits"""
@@ -640,7 +766,7 @@ class SyntheticTrafficGenerator:
                     self.poll_services_table()
                     
                     # Generate and process synthetic data
-                    impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data = self.generate_synthetic_data()
+                    impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data, attribution_stats = self.generate_synthetic_data()
                     
                     # Calculate how long the data generation took
                     execution_time = time.time() - iteration_start
@@ -649,7 +775,7 @@ class SyntheticTrafficGenerator:
                     iteration_stats = self.collect_iteration_stats(
                         impression_data, impressions_by_minute_data, 
                         conversion_data, conversions_by_minute_data, 
-                        execution_time
+                        execution_time, attribution_stats
                     )
                     
                     # Update timeseries data with new stats
