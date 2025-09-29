@@ -17,6 +17,7 @@ from . import hcd_operations
 from . import advertisers
 from . import publishers
 from .cassandra_wrapper import cassandra_wrapper
+from .presto_wrapper import presto_wrapper
 
 # Configure logging
 logging.basicConfig(
@@ -433,29 +434,35 @@ def get_advertiser_chart_endpoint(advertiser_id: str, request: Request, current_
 @app.get("/api/advertisers/{advertiser_id}/conversions")
 def get_advertiser_conversions_endpoint(advertiser_id: str, request: Request, current_user: str = Depends(require_auth)):
     """API endpoint to get conversions for a specific advertiser"""
-    with cassandra_wrapper.request_context():
+    with cassandra_wrapper.request_context(), presto_wrapper.request_context():
         try:
             conversions_data = advertisers.get_advertiser_conversions(advertiser_id)
             
-            # Get query metrics for this request
-            query_metrics = cassandra_wrapper.get_request_queries()
+            # Get query metrics for this request (both Cassandra and Presto)
+            cassandra_metrics = cassandra_wrapper.get_request_queries()
+            presto_metrics = presto_wrapper.get_request_queries()
+            
+            # Combine both metrics
+            combined_metrics = cassandra_metrics + presto_metrics
             
             return {
                 "conversions": conversions_data,
-                "query_metrics": query_metrics
+                "query_metrics": combined_metrics
             }
             
         except Exception as e:
             logger.error(f"Error fetching advertiser conversions for {advertiser_id}: {e}")
             
             # Still get query metrics even if there was an error
-            query_metrics = cassandra_wrapper.get_request_queries()
+            cassandra_metrics = cassandra_wrapper.get_request_queries()
+            presto_metrics = presto_wrapper.get_request_queries()
+            combined_metrics = cassandra_metrics + presto_metrics
             
             return JSONResponse(
                 status_code=500,
                 content={
                     "error": "Failed to fetch advertiser conversions",
-                    "query_metrics": query_metrics
+                    "query_metrics": combined_metrics
                 }
             )
 

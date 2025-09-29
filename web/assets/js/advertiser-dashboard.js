@@ -346,8 +346,24 @@ function createConversionAccordionItem(conversion, index) {
   const headingId = `heading-${index}`;
   const collapseId = `collapse-${index}`;
   
-  // Format timestamp
-  const timestamp = new Date(conversion.timestamp).toLocaleString();
+  // Format timestamps
+  const conversionTime = new Date(conversion.conversion_timestamp || conversion.timestamp).toLocaleString();
+  const impressionTime = conversion.impression_timestamp ? new Date(conversion.impression_timestamp).toLocaleString() : 'N/A';
+  
+  // Calculate time to conversion in a readable format
+  let timeToConversion = 'N/A';
+  if (conversion.time_to_conversion_seconds) {
+    const seconds = conversion.time_to_conversion_seconds;
+    if (seconds < 60) {
+      timeToConversion = `${seconds}s`;
+    } else if (seconds < 3600) {
+      timeToConversion = `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    } else {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      timeToConversion = `${hours}h ${minutes}m`;
+    }
+  }
   
   // Create the accordion item
   const accordionItem = document.createElement('div');
@@ -360,16 +376,61 @@ function createConversionAccordionItem(conversion, index) {
               aria-controls="${collapseId}">
         <div class="conversion-header">
           <span class="conversion-cookie">Cookie: ${conversion.cookie_id}</span>
-          <span class="conversion-timestamp">${timestamp}</span>
+          <span class="conversion-timestamp">${conversionTime}</span>
         </div>
       </button>
     </h2>
     <div id="${collapseId}" class="accordion-collapse collapse" 
          aria-labelledby="${headingId}" data-bs-parent="#conversionsAccordion">
       <div class="accordion-body">
-        <div class="conversion-placeholder">
-          <p>📊 Detailed conversion analytics will be displayed here</p>
-          <p class="mb-0">Coming soon: attribution tracking, revenue data, and conversion funnel details</p>
+        <div class="row">
+          <div class="col-md-6">
+            <h6>📊 Conversion Details</h6>
+            <table class="table table-sm">
+              <tbody>
+                <tr>
+                  <td><strong>Cookie ID:</strong></td>
+                  <td><code>${conversion.cookie_id}</code></td>
+                </tr>
+                <tr>
+                  <td><strong>Publisher:</strong></td>
+                  <td>${conversion.publisher_id || 'N/A'}</td>
+                </tr>
+                <tr>
+                  <td><strong>Time to Convert:</strong></td>
+                  <td>${timeToConversion}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="col-md-6">
+            <h6>⏱️ Timeline</h6>
+            <table class="table table-sm">
+              <tbody>
+                <tr>
+                  <td><strong>Impression:</strong></td>
+                  <td>${impressionTime}</td>
+                </tr>
+                <tr>
+                  <td><strong>Conversion:</strong></td>
+                  <td>${conversionTime}</td>
+                </tr>
+                <tr>
+                  <td><strong>Created:</strong></td>
+                  <td>${conversion.created_at ? new Date(conversion.created_at).toLocaleString() : 'N/A'}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="mt-3">
+          <div class="alert alert-info">
+            <small>
+              <strong>🔗 Attribution Flow:</strong> 
+              User saw impression from <strong>${conversion.publisher_id || 'Unknown Publisher'}</strong> 
+              and converted ${timeToConversion} later.
+            </small>
+          </div>
         </div>
       </div>
     </div>

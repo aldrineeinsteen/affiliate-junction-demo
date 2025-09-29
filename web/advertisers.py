@@ -1,6 +1,7 @@
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from . import hcd_operations
+from . import presto_operations
 import random
 import json
 import time
@@ -264,34 +265,50 @@ def _format_timestamp(unix_timestamp: int) -> str:
 
 def get_advertiser_conversions(advertiser_id: str) -> List[Dict]:
     """
-    Get all conversions for a specific advertiser from the conversion_tracking table.
-    Ordered by timestamp DESC (newest first).
+    Get all conversions for a specific advertiser from the Presto conversions_identified table.
+    Ordered by conversion_timestamp DESC (newest first).
     
     Args:
         advertiser_id: The advertiser ID to look up conversions for
         
     Returns:
         List of dictionaries containing conversion data:
-        [{"cookie_id": "abc123", "timestamp": datetime, "advertiser_id": "ADV123"}, ...]
+        [{"cookie_id": "abc123", "conversion_timestamp": datetime, "advertiser_id": "ADV123", 
+          "publisher_id": "PUB456", "impression_timestamp": datetime, "time_to_conversion_seconds": 3600}, ...]
     """
     try:
-        query = "SELECT advertisers_id, timestamp, cookie_id FROM conversion_tracking WHERE advertisers_id = ? ORDER BY timestamp DESC"
+        query = """
+        SELECT advertisers_id, publishers_id, cookie_id, conversion_timestamp, 
+               impression_timestamp, time_to_conversion_seconds, created_at
+        FROM iceberg_data.affiliate_junction.conversions_identified 
+        WHERE advertisers_id = ? 
+        ORDER BY conversion_timestamp DESC
+        LIMIT 100
+        """
         
-        result = hcd_operations.execute_query_with_retry(query, [advertiser_id], query_description=f"Get conversions for advertiser {advertiser_id}")
+        result = presto_operations.execute_query_with_retry(
+            query, 
+            [advertiser_id], 
+            query_description=f"Get conversions for advertiser {advertiser_id} from Presto"
+        )
         
         conversions = []
         for row in result:
             conversions.append({
                 "advertiser_id": row.advertisers_id,
+                "publisher_id": row.publishers_id,
                 "cookie_id": row.cookie_id,
-                "timestamp": row.timestamp
+                "conversion_timestamp": row.conversion_timestamp,
+                "impression_timestamp": row.impression_timestamp,
+                "time_to_conversion_seconds": row.time_to_conversion_seconds,
+                "created_at": row.created_at
             })
         
-        logger.info(f"Retrieved {len(conversions)} conversions for advertiser {advertiser_id}")
+        logger.info(f"Retrieved {len(conversions)} conversions for advertiser {advertiser_id} from Presto")
         return conversions
         
     except Exception as e:
-        logger.error(f"Error fetching conversions for advertiser {advertiser_id}: {e}")
+        logger.error(f"Error fetching conversions for advertiser {advertiser_id} from Presto: {e}")
         return []
 
 
@@ -320,3 +337,91 @@ def get_all_advertisers() -> List[Dict[str, str]]:
     except Exception as e:
         logger.error(f"Error fetching all advertisers: {e}")
         return []
+
+
+def get_presto_query_metrics() -> Dict[str, Any]:
+    """
+    Get comprehensive query metrics for all Presto operations executed through this module.
+    
+    Returns:
+        Dictionary containing:
+        - summary: Aggregate statistics (total queries, success rate, average execution time, etc.)
+        - queries: Detailed list of all executed queries with individual metrics
+        
+    Example:
+        metrics = get_presto_query_metrics()
+        print(f"Total Presto queries: {metrics['summary']['total_queries']}")
+        print(f"Average execution time: {metrics['summary']['average_execution_time_ms']}ms")
+        
+        for query in metrics['queries']:
+            print(f"Query: {query['query_description']} - {query['execution_time_ms']}ms")
+    """
+    try:
+        summary = presto_operations.get_query_summary()
+        all_queries = presto_operations.get_query_metrics()
+        
+        return {
+            "summary": summary,
+            "queries": all_queries,
+            "metrics_timestamp": time.time()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching Presto query metrics: {e}")
+        return {
+            "summary": {},
+            "queries": [],
+            "error": str(e),
+            "metrics_timestamp": time.time()
+        }
+
+
+def clear_presto_query_metrics():
+    """
+    Clear all stored Presto query metrics. Useful for resetting metrics during testing
+    or to start fresh metrics collection.
+    """
+    try:
+        presto_operations.clear_query_metrics()
+        logger.info("Presto query metrics cleared successfully")
+        return {"success": True, "message": "Presto query metrics cleared"}
+        
+    except Exception as e:
+        logger.error(f"Error clearing Presto query metrics: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def test_presto_metrics() -> Dict[str, Any]:
+    """
+    Test function to check if Presto metrics are being captured correctly.
+    Runs a simple test query and returns the metrics.
+    """
+    try:
+        # Clear metrics first
+        presto_operations.clear_query_metrics()
+        
+        # Run a simple test query
+        test_query = "SELECT 1 as test_value"
+        result = presto_operations.execute_query_simple(
+            test_query, 
+            query_description="Test query for metrics validation"
+        )
+        
+        # Get metrics
+        summary = presto_operations.get_query_summary()
+        queries = presto_operations.get_query_metrics()
+        
+        return {
+            "test_result": result,
+            "metrics_summary": summary,
+            "metrics_queries": queries,
+            "metrics_count": len(queries) if queries else 0,
+            "test_timestamp": time.time()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error testing Presto metrics: {e}")
+        return {
+            "error": str(e),
+            "test_timestamp": time.time()
+        }

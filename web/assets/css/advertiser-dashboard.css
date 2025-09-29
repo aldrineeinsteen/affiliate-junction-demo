@@ -98,6 +98,46 @@
   border-radius: 4px;
 }
 
+/* Conversion details styling */
+.accordion-body .table {
+  margin-bottom: 0;
+}
+
+.accordion-body .table td {
+  border: none;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+}
+
+.accordion-body .table td:first-child {
+  width: 40%;
+  color: #6c757d;
+}
+
+.accordion-body .table code {
+  font-size: 0.8rem;
+  background-color: #f8f9fa;
+  color: #495057;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+}
+
+.accordion-body h6 {
+  color: #495057;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.accordion-body .alert {
+  margin-bottom: 0;
+  padding: 0.5rem 0.75rem;
+}
+
+.accordion-body .alert small {
+  margin-bottom: 0;
+}
+
 /* Loading states for conversions */
 #conversions-loading {
   min-height: 120px;

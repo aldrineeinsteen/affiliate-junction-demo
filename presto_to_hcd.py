@@ -765,6 +765,78 @@ class AffiliateJunctionInsights:
             logger.error(f"Error processing publisher conversion rates (parallel): {e}")
             raise
 
+    def get_presto_table_sizes(self):
+        """
+        Enumerate all tables in the Presto affiliate_junction schema and get count(*) for each table.
+        Store results in key_value_store table with key 'presto_table_counts'.
+        """
+        logger.info("Starting Presto table size enumeration")
+        
+        try:
+            # First, get all tables in the affiliate_junction schema
+            tables_query = """
+            SHOW TABLES FROM iceberg_data.affiliate_junction
+            """
+            
+            tables_result = self.presto_client.execute_query(
+                query=tables_query,
+                query_description="Get all tables in affiliate_junction schema"
+            )
+            
+            if not tables_result:
+                logger.warning("No tables found in affiliate_junction schema")
+                return
+            
+            table_counts = {}
+            
+            # Get count for each table
+            for table_row in tables_result:
+                table_name = table_row[0]  # Table name is in the first column
+                
+                try:
+                    count_query = f"""
+                    SELECT COUNT(*) as row_count
+                    FROM iceberg_data.affiliate_junction.{table_name}
+                    """
+                    
+                    count_result = self.presto_client.execute_query(
+                        query=count_query,
+                        query_description=f"Get row count for table {table_name}"
+                    )
+                    
+                    if count_result and len(count_result) > 0:
+                        row_count = int(count_result[0][0])
+                        table_counts[table_name] = row_count
+                        logger.debug(f"Table {table_name}: {row_count} rows")
+                    else:
+                        table_counts[table_name] = 0
+                        logger.warning(f"Could not get count for table {table_name}")
+                        
+                except Exception as e:
+                    logger.error(f"Error counting rows in table {table_name}: {e}")
+                    table_counts[table_name] = -1  # Indicate error
+            
+            # Store results in key_value_store table
+            current_time = datetime.now(timezone.utc)
+            value_json = json.dumps(table_counts)
+            
+            upsert_query = """
+            INSERT INTO key_value_store (key, value, last_update)
+            VALUES (?, ?, ?)
+            """
+            
+            self.cassandra_connection.execute_query(
+                query=upsert_query,
+                parameters=["presto_table_counts", value_json, current_time],
+                query_description="Store Presto table counts in key_value_store"
+            )
+            
+            logger.info(f"Stored Presto table counts: {table_counts}")
+            
+        except Exception as e:
+            logger.error(f"Error getting Presto table sizes: {e}")
+            raise
+
     def process_minute_parallel(self, target_minute):
         """
         Process all data for a target minute using parallel execution.
@@ -779,8 +851,12 @@ class AffiliateJunctionInsights:
         processing_start_time = time.time()
         
         try:
-            # Execute all processing tasks in parallel (main tasks + conversion rates)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            # Check if we should run table size enumeration (every 5 minutes)
+            run_table_sizes = target_minute.minute % 5 == 0
+            
+            # Execute all processing tasks in parallel (main tasks + conversion rates + optional table sizes)
+            max_workers = 6 if run_table_sizes else 5
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submit all main processing tasks
                 publisher_impressions_future = executor.submit(self.process_publisher_impressions, target_minute)
                 advertiser_impressions_future = executor.submit(self.process_advertiser_impressions, target_minute)
@@ -790,6 +866,12 @@ class AffiliateJunctionInsights:
                 # Submit conversion rates processing in parallel (no dependency on main tasks)
                 conversion_rates_future = executor.submit(self.process_publisher_conversion_rates_parallel, target_minute)
                 
+                # Submit table sizes processing every 5 minutes
+                table_sizes_future = None
+                if run_table_sizes:
+                    table_sizes_future = executor.submit(self.get_presto_table_sizes)
+                    logger.info("Started table size enumeration task (runs every 5 minutes)")
+                
                 # Wait for all main tasks to complete
                 publishers_processed, publisher_impressions_total, publisher_processing_time = publisher_impressions_future.result()
                 advertisers_processed, advertiser_impressions_total, advertiser_processing_time = advertiser_impressions_future.result()
@@ -798,12 +880,25 @@ class AffiliateJunctionInsights:
                 
                 # Wait for conversion rates to complete
                 conversion_rates_future.result()
+                
+                # Wait for table sizes to complete if it was started
+                if table_sizes_future:
+                    table_sizes_future.result()
+                    logger.info("Table size enumeration completed")
             
             # Calculate total processing time
             total_processing_time = time.time() - processing_start_time
             
-            # We executed 8 Presto queries (4 main + 4 conversion rates) all in parallel
-            presto_queries_executed = 8
+            # Calculate Presto queries executed based on what was run
+            # Base queries: 4 main tasks + 1 conversion rate = 5 queries
+            presto_queries_executed = 5
+            
+            # Add table size queries if they were executed (1 SHOW TABLES + N COUNT queries)
+            if run_table_sizes:
+                # We don't know the exact number of tables until runtime, but we'll estimate
+                # The actual count will be tracked by the presto_client query metrics
+                presto_queries_executed += 1  # For the SHOW TABLES query
+                # Individual table counts will be tracked by the connection wrapper
             
             # Return results in same format as sequential processing
             return {
