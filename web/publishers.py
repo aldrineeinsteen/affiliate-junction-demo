@@ -9,42 +9,60 @@ import time
 logger = logging.getLogger(__name__)
 
 
-def get_random_publishers(limit: int = 10) -> List[Dict[str, str]]:
+def get_random_publishers(limit: int = 10) -> List[Dict]:
     """
-    Get a random selection of publishers from the HCD publishers table.
+    Get a random selection of publishers from the HCD publishers table with impression
+    and conversion data, sorted by conversions DESC first, then impressions DESC second.
     
     Args:
         limit: Maximum number of publishers to return (default: 10)
         
     Returns:
-        List of dictionaries containing publisher information:
-        [{"publisher_id": "PUB123", "name": "PUB123"}, ...]
+        List of dictionaries containing publisher information with metrics:
+        [
+            {
+                "publisher_id": "PUB123", 
+                "name": "PUB123",
+                "total_impressions": 1500,
+                "total_conversions": 25,
+                "last_updated": "2023-09-29 10:30:00"
+            }, 
+            ...
+        ]
+        Sorted by conversions DESC, then impressions DESC
     """
     try:
-        # Query to get publishers - using LIMIT to control result size
-        # Note: Cassandra doesn't have true random sampling, but we can limit results
-        query = "SELECT publisher_id FROM publishers LIMIT ?"
+        # Query to get publishers with impression and conversion data
+        query = "SELECT publisher_id, impressions, conversions, last_updated FROM publishers LIMIT ?"
         
-        result = hcd_operations.execute_query_with_retry(query, [limit * 3], query_description="Fetch random publishers for dropdown")  # Get more than needed to allow for filtering
+        result = hcd_operations.execute_query_with_retry(query, [limit * 5], query_description="Fetch publishers with metrics for random selection")  # Get more than needed to allow for filtering
         
         publishers = []
-        seen_ids = set()
-        
-        publisher_ids = [row.publisher_id for row in result]
-        random.shuffle(publisher_ids)
-        selected_ids = publisher_ids[:limit]
-
-        publishers = []
-        for publisher_id in selected_ids:
+        for row in result:
+            # Parse JSON data and calculate totals
+            total_impressions = _sum_json_counts(row.impressions)
+            total_conversions = _sum_json_counts(row.conversions)
+            
             publishers.append({
-            "publisher_id": publisher_id,
-            "name": publisher_id  # Using ID as display name for now
+                "publisher_id": row.publisher_id,
+                "name": row.publisher_id,  # Using ID as display name for now
+                "total_impressions": total_impressions,
+                "total_conversions": total_conversions,
+                "last_updated": row.last_updated
             })
-        logger.info(f"Retrieved {len(publishers)} publishers")
-        return publishers
+        
+        # Sort by conversions DESC first, then impressions DESC second
+        publishers.sort(key=lambda x: (x['total_conversions'], x['total_impressions']), reverse=True)
+        
+        # Randomly shuffle the sorted list and take the limit
+        random.shuffle(publishers)
+        selected_publishers = publishers[:limit]
+        
+        logger.info(f"Retrieved {len(selected_publishers)} random publishers with metrics")
+        return selected_publishers
         
     except Exception as e:
-        logger.error(f"Error fetching publishers: {e}")
+        logger.error(f"Error fetching random publishers: {e}")
         return []
 
 

@@ -4,6 +4,14 @@
  */
 
 /**
+ * Get current advertiser ID from the page data attribute
+ */
+function getCurrentAdvertiserId() {
+  const body = document.body;
+  return body.getAttribute('data-advertiser-id');
+}
+
+/**
  * Load advertiser dashboard data
  */
 async function loadDashboardData() {

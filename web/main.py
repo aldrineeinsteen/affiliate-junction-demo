@@ -429,6 +429,123 @@ def get_advertiser_chart_endpoint(advertiser_id: str, request: Request, current_
             )
 
 
+# --- Publisher Details API endpoint ---
+@app.get("/api/publishers/{publisher_id}")
+def get_publisher_details_endpoint(publisher_id: str, request: Request, current_user: str = Depends(require_auth)):
+    """API endpoint to get detailed information for a specific publisher"""
+    with cassandra_wrapper.request_context():
+        try:
+            publisher_details = publishers.get_publisher_details(publisher_id)
+            
+            # Get query metrics for this request
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            if publisher_details:
+                return {
+                    "publisher": publisher_details,
+                    "query_metrics": query_metrics
+                }
+            else:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": f"Publisher {publisher_id} not found",
+                        "query_metrics": query_metrics
+                    }
+                )
+        except Exception as e:
+            logger.error(f"Error fetching publisher details for {publisher_id}: {e}")
+            
+            # Still get query metrics even if there was an error
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Failed to fetch publisher details",
+                    "query_metrics": query_metrics
+                }
+            )
+
+
+# --- Publisher Dashboard API endpoint ---
+@app.get("/api/publishers/{publisher_id}/dashboard")
+def get_publisher_dashboard_endpoint(publisher_id: str, request: Request, current_user: str = Depends(require_auth)):
+    """API endpoint to get dashboard data for a specific publisher with aggregated totals"""
+    with cassandra_wrapper.request_context():
+        try:
+            dashboard_data = publishers.get_publisher_dashboard_data(publisher_id)
+            
+            # Get query metrics for this request
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            if dashboard_data:
+                return {
+                    "dashboard": dashboard_data,
+                    "query_metrics": query_metrics
+                }
+            else:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": f"Publisher {publisher_id} not found",
+                        "query_metrics": query_metrics
+                    }
+                )
+        except Exception as e:
+            logger.error(f"Error fetching publisher dashboard for {publisher_id}: {e}")
+            
+            # Still get query metrics even if there was an error
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Failed to fetch publisher dashboard",
+                    "query_metrics": query_metrics
+                }
+            )
+
+
+# --- Publisher Chart Data API endpoint ---
+@app.get("/api/publishers/{publisher_id}/chart")
+def get_publisher_chart_endpoint(publisher_id: str, request: Request, current_user: str = Depends(require_auth)):
+    """API endpoint to get chart data for a specific publisher"""
+    with cassandra_wrapper.request_context():
+        try:
+            chart_data = publishers.get_publisher_chart_data(publisher_id)
+            
+            # Get query metrics for this request
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            if chart_data:
+                return {
+                    "chart": chart_data,
+                    "query_metrics": query_metrics
+                }
+            else:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": f"Publisher {publisher_id} not found",
+                        "query_metrics": query_metrics
+                    }
+                )
+        except Exception as e:
+            logger.error(f"Error fetching publisher chart data for {publisher_id}: {e}")
+            
+            # Still get query metrics even if there was an error
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Failed to fetch publisher chart data",
+                    "query_metrics": query_metrics
+                }
+            )
+
+
 # --- Services Settings API endpoint ---
 @app.put("/api/services/{service_name}/settings")
 async def update_service_settings(service_name: str, settings: dict, request: Request, current_user: str = Depends(require_auth)):
@@ -489,6 +606,21 @@ def advertiser_dashboard(request: Request, advertiser_id: str):
     return templates.TemplateResponse("advertiser_dashboard.html", {
         "request": request, 
         "advertiser_id": advertiser_id
+    })
+
+
+# --- Publisher Dashboard UI endpoint ---
+@app.get("/publisher/{publisher_id}", response_class=HTMLResponse)
+def publisher_dashboard(request: Request, publisher_id: str):
+    """Publisher dashboard page"""
+    # Check authentication and redirect if necessary
+    redirect_response = check_auth_or_redirect(request)
+    if redirect_response:
+        return redirect_response
+    
+    return templates.TemplateResponse("publisher_dashboard.html", {
+        "request": request, 
+        "publisher_id": publisher_id
     })
 
 

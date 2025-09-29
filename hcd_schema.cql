@@ -97,7 +97,16 @@ CREATE TABLE IF NOT EXISTS publishers (
     impressions text, 
     conversions text, 
     last_updated timestamp
-) WITH default_time_to_live = 21600;
+) WITH default_time_to_live = 21600
+AND gc_grace_seconds = 0
+AND compaction = {
+  'class': 'TimeWindowCompactionStrategy',
+  'compaction_window_unit': 'HOURS',
+  'compaction_window_size': '1',         -- ~6 active windows for a 6h TTL
+  'timestamp_resolution': 'MICROSECONDS',
+  'min_threshold': '2',
+  'max_threshold': '16'
+};
 
 -- Create advertisers table with trailing 90-minute data using JSON text fields
 -- Each JSON array contains objects with timestamp and count: [{"ts": 1234567890, "count": 10}, ...]
