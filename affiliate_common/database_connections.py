@@ -23,7 +23,7 @@ from cassandra.policies import DCAwareRoundRobinPolicy
 logger = logging.getLogger(__name__)
 
 
-def truncate_query_text(query_text: str, max_length: int = 500) -> str:
+def truncate_query_text(query_text: str, max_length: int = 750) -> str:
     """
     Truncate query text if it exceeds the maximum length.
     Preserves readability by adding ellipsis and showing character count.
