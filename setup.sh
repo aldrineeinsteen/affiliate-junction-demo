@@ -31,6 +31,10 @@ sleep 60 	# Wait for Presto DDL commands to complete
 sudo systemctl start presto_to_hcd presto_cleanup
 echo "systemctl done"
 
+# Add virtual environment activation to .bashrc if not already present
+if ! grep -q "source $(pwd)/.venv/bin/activate" ~/.bashrc; then
+    echo "source $(pwd)/.venv/bin/activate" >> ~/.bashrc
+fi
 
 # source ./venv/bin/activate
 # uvicorn web.main:app --reload --host 0.0.0.0 --port 10000

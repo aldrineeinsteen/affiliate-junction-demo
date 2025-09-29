@@ -36,9 +36,11 @@ class AffiliateJunctionInsights:
             'advertisers_processed': [],
             'publisher_impressions_total': [],
             'advertiser_impressions_total': [],
+            'advertiser_conversions_total': [],
             'execution_time_seconds': [],
             'publisher_processing_time': [],
             'advertiser_processing_time': [],
+            'advertiser_conversion_processing_time': [],
             'presto_queries_executed': []
         }
         
@@ -183,6 +185,75 @@ class AffiliateJunctionInsights:
             tuple: (advertisers_processed, total_impressions, processing_time)
         """
         return self.process_entity_impressions(target_minute, 'advertisers')
+
+    def process_entity_conversions(self, target_minute, entity_type='advertisers'):
+        """
+        Process conversion data from the previous minute and upsert to HCD entity table.
+        Note: Conversions are typically only tracked for advertisers in affiliate marketing.
+        
+        Args:
+            target_minute (datetime): The minute timestamp to process conversions for
+            entity_type (str): Type of entity - 'advertisers' (conversions are advertiser-centric)
+            
+        Returns:
+            tuple: (entities_processed, total_conversions, processing_time)
+        """
+        logger.info(f"Starting {entity_type[:-1]} conversions processing for minute: {target_minute}")
+        processing_start_time = time.time()
+        
+        try:
+            start_time = target_minute
+            end_time = target_minute + timedelta(minutes=1)
+            
+            # Define the ID column name based on entity type (for Presto/Iceberg queries)
+            id_column = f"{entity_type[:-1]}s_id"  # advertisers -> advertisers_id
+            
+            # Format datetime values directly into the query (Presto doesn't support parameterized queries)
+            conversions_query = f"""
+            SELECT 
+                {id_column},
+                COUNT(*) as total_conversions
+            FROM iceberg_data.affiliate_junction.conversion_tracking
+            WHERE timestamp >= TIMESTAMP '{start_time.strftime('%Y-%m-%d %H:%M:%S')}' 
+                AND timestamp < TIMESTAMP '{end_time.strftime('%Y-%m-%d %H:%M:%S')}'
+                AND {id_column} IS NOT NULL
+            GROUP BY {id_column}
+            """
+            
+            # Execute query using the connection wrapper to capture metrics
+            entity_conversions = self.presto_client.execute_query(
+                query=conversions_query,
+                query_description=f"Get {entity_type} conversion totals for minute {target_minute}"
+            )
+            
+            entities_processed = len(entity_conversions)
+            total_conversions = 0
+            
+            if not entity_conversions:
+                logger.info(f"No conversions found for {entity_type} in minute: {target_minute}")
+                processing_time = time.time() - processing_start_time
+                return entities_processed, total_conversions, processing_time
+            
+            logger.info(f"Found conversions for {len(entity_conversions)} {entity_type} in minute: {target_minute}")
+            
+            # Process each entity's conversions
+            unix_timestamp = int(target_minute.timestamp())
+            
+            for row in entity_conversions:
+                entity_id = row[0]
+                conversion_count = int(row[1])
+                total_conversions += conversion_count
+                
+                self.upsert_entity_conversions(entity_id, unix_timestamp, conversion_count, entity_type)
+            
+        except Exception as e:
+            logger.error(f"Error during {entity_type[:-1]} conversions processing: {e}")
+            raise
+        
+        processing_time = time.time() - processing_start_time
+        logger.info(f"{entity_type.capitalize()} conversions processing completed for minute: {target_minute}")
+        
+        return entities_processed, total_conversions, processing_time
     
     def upsert_entity_impressions(self, entity_id, unix_timestamp, impression_count, entity_type='publishers'):
         """
@@ -297,8 +368,208 @@ class AffiliateJunctionInsights:
             impression_count (int): Number of impressions for this minute
         """
         return self.upsert_entity_impressions(publisher_id, unix_timestamp, impression_count, 'publishers')
+
+    def upsert_entity_conversions(self, entity_id, unix_timestamp, conversion_count, entity_type='advertisers'):
+        """
+        Upsert conversion data for an entity (typically advertiser) in the HCD table.
+        
+        Args:
+            entity_id (str): The entity ID (advertiser_id)
+            unix_timestamp (int): Unix timestamp of the minute
+            conversion_count (int): Number of conversions for this minute
+            entity_type (str): Type of entity - 'advertisers' (conversions are advertiser-centric)
+        """
+        try:
+            # Define table and column names based on entity type (for Cassandra queries)
+            table_name = entity_type
+            id_column = f"{entity_type[:-1]}_id"  # Remove 's' from end (advertisers -> advertiser_id)
+            
+            # First, try to read existing record
+            select_query = f"""
+            SELECT conversions, last_updated
+            FROM {table_name}
+            WHERE {id_column} = '{entity_id}'
+            """
+            
+            existing_row = self.cassandra_connection.execute_query(
+                query=select_query,
+                query_description=f"Get existing {entity_type[:-1]} {entity_id} record"
+            )
+            
+            # Convert result to single row if needed
+            existing_row = existing_row[0] if existing_row else None
+            
+            current_time = datetime.now(timezone.utc)
+            
+            # Create conversion entry as tuple [timestamp, count]
+            new_conversion_tuple = [int(unix_timestamp), int(conversion_count)]
+
+            if existing_row:
+                # Update existing record
+                existing_conversions_json = existing_row.conversions
+                
+                # Parse existing JSON or start with empty list
+                try:
+                    existing_conversions = json.loads(existing_conversions_json) if existing_conversions_json else []
+                except (json.JSONDecodeError, TypeError):
+                    existing_conversions = []
+
+                # Add new conversion entry to the list
+                updated_conversions = existing_conversions + [new_conversion_tuple]
+
+                # Remove duplicates by timestamp (keeping the latest entry for each timestamp)
+                seen_timestamps = set()
+                deduplicated_conversions = []
+                for conversion in reversed(updated_conversions):  # Process from newest to oldest
+                    if conversion[0] not in seen_timestamps:  # conversion[0] is timestamp
+                        seen_timestamps.add(conversion[0])
+                        deduplicated_conversions.append(conversion)
+                
+                # Convert back to sorted list (oldest first)
+                conversions_list = sorted(deduplicated_conversions, key=lambda x: x[0])
+
+                # Keep only the latest 90 entries
+                if len(conversions_list) > 90:
+                    conversions_list = conversions_list[-90:]
+                
+                # Convert to JSON string
+                updated_conversions_json = json.dumps(conversions_list)
+                
+                # Update the record
+                update_query = f"""
+                UPDATE {table_name}
+                SET conversions = ?, last_updated = ?
+                WHERE {id_column} = ?
+                """
+                
+                self.cassandra_connection.execute_query(
+                    query=update_query,
+                    parameters=[updated_conversions_json, current_time, entity_id],
+                    query_description=f"Update {entity_type[:-1]} {entity_id} conversions"
+                )
+                logger.debug(f"Updated {entity_type[:-1]} {entity_id} with {conversion_count} conversions for timestamp {unix_timestamp}")
+                
+            else:
+                # Insert new record
+                insert_query = f"""
+                INSERT INTO {table_name} ({id_column}, impressions, conversions, last_updated)
+                VALUES (?, ?, ?, ?)
+                """
+                
+                # Create JSON for new conversions list
+                new_conversions_json = json.dumps([new_conversion_tuple])
+                empty_impressions_json = json.dumps([])
+                
+                self.cassandra_connection.execute_query(
+                    query=insert_query,
+                    parameters=[entity_id, empty_impressions_json, new_conversions_json, current_time],
+                    query_description=f"Insert new {entity_type[:-1]} {entity_id}"
+                )
+                logger.debug(f"Inserted new {entity_type[:-1]} {entity_id} with {conversion_count} conversions for timestamp {unix_timestamp}")
+                
+        except Exception as e:
+            logger.error(f"Error upserting {entity_type[:-1]} conversions for {entity_id}: {e}")
+            raise
+
+    def process_advertiser_conversions(self, target_minute):
+        """
+        Process conversion data from the previous minute and upsert to HCD advertisers table.
+        
+        Args:
+            target_minute (datetime): The minute timestamp to process conversions for
+            
+        Returns:
+            tuple: (advertisers_processed, total_conversions, processing_time)
+        """
+        return self.process_entity_conversions(target_minute, 'advertisers')
+
+    def process_entity_metrics(self, target_minute, entity_type='publishers', metric_type='impressions'):
+        """
+        Generic method to process metrics (impressions or conversions) from Presto and upsert to HCD.
+        This is a more generic version that could potentially replace the specific methods.
+        
+        Args:
+            target_minute (datetime): The minute timestamp to process metrics for
+            entity_type (str): Type of entity - 'publishers' or 'advertisers'
+            metric_type (str): Type of metric - 'impressions' or 'conversions'
+            
+        Returns:
+            tuple: (entities_processed, total_metrics, processing_time)
+        """
+        logger.info(f"Starting {entity_type[:-1]} {metric_type} processing for minute: {target_minute}")
+        processing_start_time = time.time()
+        
+        try:
+            start_time = target_minute
+            end_time = target_minute + timedelta(minutes=1)
+            
+            # Define the ID column name based on entity type (for Presto/Iceberg queries)
+            id_column = f"{entity_type[:-1]}s_id"  # publishers -> publishers_id, advertisers -> advertisers_id
+            
+            # Define table and aggregation based on metric type
+            if metric_type == 'impressions':
+                table_name = 'impression_tracking'
+                aggregation = 'SUM(impressions) as total_metrics'
+                # Impressions can be tracked for both publishers and advertisers
+            elif metric_type == 'conversions':
+                table_name = 'conversion_tracking'
+                aggregation = 'COUNT(*) as total_metrics'
+                # Conversions are typically only for advertisers, but keeping it generic
+            else:
+                raise ValueError(f"Unsupported metric_type: {metric_type}")
+            
+            # Format datetime values directly into the query (Presto doesn't support parameterized queries)
+            metrics_query = f"""
+            SELECT 
+                {id_column},
+                {aggregation}
+            FROM iceberg_data.affiliate_junction.{table_name}
+            WHERE timestamp >= TIMESTAMP '{start_time.strftime('%Y-%m-%d %H:%M:%S')}' 
+                AND timestamp < TIMESTAMP '{end_time.strftime('%Y-%m-%d %H:%M:%S')}'
+                AND {id_column} IS NOT NULL
+            GROUP BY {id_column}
+            """
+            
+            # Execute query using the connection wrapper to capture metrics
+            entity_metrics = self.presto_client.execute_query(
+                query=metrics_query,
+                query_description=f"Get {entity_type} {metric_type} totals for minute {target_minute}"
+            )
+            
+            entities_processed = len(entity_metrics)
+            total_metrics = 0
+            
+            if not entity_metrics:
+                logger.info(f"No {metric_type} found for {entity_type} in minute: {target_minute}")
+                processing_time = time.time() - processing_start_time
+                return entities_processed, total_metrics, processing_time
+            
+            logger.info(f"Found {metric_type} for {len(entity_metrics)} {entity_type} in minute: {target_minute}")
+            
+            # Process each entity's metrics
+            unix_timestamp = int(target_minute.timestamp())
+            
+            for row in entity_metrics:
+                entity_id = row[0]
+                metric_count = int(row[1])
+                total_metrics += metric_count
+                
+                # Call the appropriate upsert method
+                if metric_type == 'impressions':
+                    self.upsert_entity_impressions(entity_id, unix_timestamp, metric_count, entity_type)
+                elif metric_type == 'conversions':
+                    self.upsert_entity_conversions(entity_id, unix_timestamp, metric_count, entity_type)
+            
+        except Exception as e:
+            logger.error(f"Error during {entity_type[:-1]} {metric_type} processing: {e}")
+            raise
+        
+        processing_time = time.time() - processing_start_time
+        logger.info(f"{entity_type.capitalize()} {metric_type} processing completed for minute: {target_minute}")
+        
+        return entities_processed, total_metrics, processing_time
     
-    def collect_iteration_stats(self, publishers_processed, advertisers_processed, publisher_impressions_total, advertiser_impressions_total, execution_time, publisher_processing_time, advertiser_processing_time, presto_queries_executed):
+    def collect_iteration_stats(self, publishers_processed, advertisers_processed, publisher_impressions_total, advertiser_impressions_total, advertiser_conversions_total, execution_time, publisher_processing_time, advertiser_processing_time, advertiser_conversion_processing_time, presto_queries_executed):
         """Collect stats from current iteration"""
         try:
             current_timestamp = int(time.time())
@@ -309,9 +580,11 @@ class AffiliateJunctionInsights:
                 'advertisers_processed': (current_timestamp, advertisers_processed),
                 'publisher_impressions_total': (current_timestamp, publisher_impressions_total),
                 'advertiser_impressions_total': (current_timestamp, advertiser_impressions_total),
+                'advertiser_conversions_total': (current_timestamp, advertiser_conversions_total),
                 'execution_time_seconds': (current_timestamp, round(execution_time, 2)),
                 'publisher_processing_time': (current_timestamp, round(publisher_processing_time, 2)),
                 'advertiser_processing_time': (current_timestamp, round(advertiser_processing_time, 2)),
+                'advertiser_conversion_processing_time': (current_timestamp, round(advertiser_conversion_processing_time, 2)),
                 'presto_queries_executed': (current_timestamp, presto_queries_executed)
             }
             
@@ -392,16 +665,19 @@ class AffiliateJunctionInsights:
                     publishers_processed, publisher_impressions_total, publisher_processing_time = self.process_publisher_impressions(target_minute)
                     advertisers_processed, advertiser_impressions_total, advertiser_processing_time = self.process_advertiser_impressions(target_minute)
                     
+                    # Process advertiser conversions
+                    advertisers_conversions_processed, advertiser_conversions_total, advertiser_conversion_processing_time = self.process_advertiser_conversions(target_minute)
+                    
                     execution_time = time.time() - iteration_start
                     
-                    # We executed 2 Presto queries (one for publishers, one for advertisers)
-                    presto_queries_executed = 2
+                    # We executed 3 Presto queries (publishers impressions, advertisers impressions, advertisers conversions)
+                    presto_queries_executed = 3
                     
                     # Collect stats from this iteration
                     iteration_stats = self.collect_iteration_stats(
                         publishers_processed, advertisers_processed, 
-                        publisher_impressions_total, advertiser_impressions_total,
-                        execution_time, publisher_processing_time, advertiser_processing_time,
+                        publisher_impressions_total, advertiser_impressions_total, advertiser_conversions_total,
+                        execution_time, publisher_processing_time, advertiser_processing_time, advertiser_conversion_processing_time,
                         presto_queries_executed
                     )
                     
