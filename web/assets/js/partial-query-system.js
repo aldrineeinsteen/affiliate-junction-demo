@@ -64,9 +64,7 @@ function initializeQueryPanel() {
   // Clear queries button click
   if (clearBtn) {
     clearBtn.addEventListener('click', function() {
-      if (confirm('Are you sure you want to clear all query history?')) {
-        resetQueryCounters();
-      }
+      resetQueryCounters();
     });
   }
   
@@ -167,12 +165,8 @@ function addQueryToPanel(method, url, status = 'pending', queryMetrics = null) {
   }
   
   const queryId = `query-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  const timestamp = new Date().toLocaleTimeString();
-  
-  // Create query item
-  const queryItem = document.createElement('div');
-  queryItem.className = `query-item ${status} new`;
-  queryItem.id = queryId;
+  const now = new Date();
+  const timestamp = now.toLocaleTimeString() + '.' + String(now.getMilliseconds()).padStart(3, '0');
   
   // If we have query metrics, create individual query items instead of grouping them
   if (queryMetrics && queryMetrics.length > 0) {
@@ -233,40 +227,12 @@ function addQueryToPanel(method, url, status = 'pending', queryMetrics = null) {
       incrementQueryBadge();
     });
     
-    // Since we've created individual items, we don't need the original queryItem
-    // Return the first query ID for compatibility
+    // Update stats and return the first query ID for compatibility
     updateQueryStats();
     return queryIds[0] || queryId;
   } else {
-    // No query metrics - create a single HTTP request entry (fallback behavior)
-    const queryItem = document.createElement('div');
-    queryItem.className = `query-item ${status} new`;
-    queryItem.id = queryId;
-    
-    // Create simple HTTP request display
-    queryItem.innerHTML = `
-      <div class="query-item-container">
-        <div class="query-item-header">
-          <span class="query-type-badge http">${method}</span>
-          <span class="query-execution-time">--</span>
-          <span class="query-item-time mx-2">${timestamp}</span>
-        </div>
-        <div class="query-item-description">HTTP Request</div>
-        <div class="query-item-url">${url}</div>
-        <div class="query-item-status ${status}" id="${queryId}-status">${status.toUpperCase()}</div>
-        <div class="query-item-response" id="${queryId}-response">Pending...</div>
-      </div>
-    `;
-    
-    // Add to top of list
-    queryList.insertBefore(queryItem, queryList.firstChild);
-    
-    // Update counters and increment badge
-    updateQueryStats();
-    incrementQueryBadge();
-    
-    // Return query ID for later updates
-    return queryId;
+    // No query metrics - do not add to panel or update badge
+    return null;
   }
 }
 

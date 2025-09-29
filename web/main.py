@@ -535,8 +535,16 @@ def get_services_api(request: Request, current_user: str = Depends(require_auth)
                     'parsed_stats': parsed_stats
                 })
             
-            # Sort alphabetically by name
-            services.sort(key=lambda x: x['name'])
+            # Sort services in custom order
+            service_order = ['generate_traffic', 'hcd_to_presto', 'presto_insights', 'presto_to_hcd', 'presto_cleanup']
+            def get_sort_key(service):
+                try:
+                    return service_order.index(service['name'])
+                except ValueError:
+                    # If service name not in the defined order, put it at the end
+                    return len(service_order)
+            
+            services.sort(key=get_sort_key)
             
             # Get query metrics for this request
             query_metrics = cassandra_wrapper.get_request_queries()
@@ -663,8 +671,16 @@ def services_dashboard(request: Request):
                     'parsed_stats': parsed_stats
                 })
             
-            # Sort alphabetically by name in Python
-            services.sort(key=lambda x: x['name'])
+            # Sort services in custom order
+            service_order = ['generate_traffic', 'hcd_to_presto', 'presto_insights', 'presto_to_hcd', 'presto_cleanup']
+            def get_sort_key(service):
+                try:
+                    return service_order.index(service['name'])
+                except ValueError:
+                    # If service name not in the defined order, put it at the end
+                    return len(service_order)
+            
+            services.sort(key=get_sort_key)
             
             # Create JSON representation for JavaScript
             import json
