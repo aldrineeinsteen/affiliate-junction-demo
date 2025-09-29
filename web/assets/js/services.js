@@ -386,6 +386,8 @@ function formatValue(value, metricName) {
         return `${value.toFixed(2)}%`;
     } else if (metricName.includes('bytes') || metricName.includes('memory')) {
         return formatBytes(value);
+    } else if (metricName.includes('seconds')) {
+        return `${value.toFixed(3)}s`;
     } else if (metricName.includes('time') || metricName.includes('latency')) {
         return `${value.toFixed(2)}ms`;
     } else {

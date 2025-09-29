@@ -483,6 +483,85 @@ class AffiliateJunctionInsights:
         """
         return self.process_entity_conversions(target_minute, 'advertisers')
 
+    def process_publisher_conversion_rates(self, target_minute):
+        """
+        Calculate average conversion rates across all publishers for different time windows
+        and store results in the key_value_store table.
+        
+        Args:
+            target_minute (datetime): The current minute timestamp for calculating time windows
+        """
+        logger.info("Processing publisher conversion rates for multiple time windows")
+        
+        try:
+            conversion_rates = {}
+            time_windows = [30, 60, 90, 180]  # minutes
+            
+            for window_minutes in time_windows:
+                start_time = target_minute - timedelta(minutes=window_minutes)
+                end_time = target_minute
+                
+                # Query for total impressions and conversions across all publishers
+                query = f"""
+                WITH impressions_data AS (
+                    SELECT SUM(impressions) as total_impressions
+                    FROM iceberg_data.affiliate_junction.impression_tracking
+                    WHERE timestamp >= TIMESTAMP '{start_time.strftime('%Y-%m-%d %H:%M:%S')}'
+                        AND timestamp < TIMESTAMP '{end_time.strftime('%Y-%m-%d %H:%M:%S')}'
+                        AND publishers_id IS NOT NULL
+                ),
+                conversions_data AS (
+                    SELECT COUNT(*) as total_conversions
+                    FROM iceberg_data.affiliate_junction.conversion_tracking
+                    WHERE timestamp >= TIMESTAMP '{start_time.strftime('%Y-%m-%d %H:%M:%S')}'
+                        AND timestamp < TIMESTAMP '{end_time.strftime('%Y-%m-%d %H:%M:%S')}'
+                )
+                SELECT 
+                    i.total_impressions,
+                    c.total_conversions,
+                    CASE 
+                        WHEN i.total_impressions > 0 THEN 
+                            CAST(c.total_conversions AS DOUBLE) / CAST(i.total_impressions AS DOUBLE) * 100
+                        ELSE 0.0
+                    END as conversion_rate_percent
+                FROM impressions_data i
+                CROSS JOIN conversions_data c
+                """
+                
+                result = self.presto_client.execute_query(
+                    query=query,
+                    query_description=f"Calculate publisher conversion rate for {window_minutes}-minute window"
+                )
+                
+                if result and len(result) > 0:
+                    row = result[0]
+                    conversion_rate = float(row[2]) if row[2] is not None else 0.0
+                    conversion_rates[f"{window_minutes}_min_pct"] = round(conversion_rate, 4)
+                    logger.debug(f"{window_minutes}-minute conversion rate: {conversion_rate:.4f}%")
+                else:
+                    conversion_rates[f"{window_minutes}_min_pct"] = 0.0
+            
+            # Store results in key_value_store table
+            current_time = datetime.now(timezone.utc)
+            value_json = json.dumps(conversion_rates)
+            
+            upsert_query = """
+            INSERT INTO key_value_store (key, value, last_update)
+            VALUES (?, ?, ?)
+            """
+            
+            self.cassandra_connection.execute_query(
+                query=upsert_query,
+                parameters=["publisher_all_conversion_rate", value_json, current_time],
+                query_description="Store publisher conversion rates in key_value_store"
+            )
+            
+            logger.info(f"Stored publisher conversion rates: {conversion_rates}")
+            
+        except Exception as e:
+            logger.error(f"Error processing publisher conversion rates: {e}")
+            raise
+
     def process_entity_metrics(self, target_minute, entity_type='publishers', metric_type='impressions'):
         """
         Generic method to process metrics (impressions or conversions) from Presto and upsert to HCD.
@@ -664,14 +743,17 @@ class AffiliateJunctionInsights:
                     # Main processing tasks
                     publishers_processed, publisher_impressions_total, publisher_processing_time = self.process_publisher_impressions(target_minute)
                     advertisers_processed, advertiser_impressions_total, advertiser_processing_time = self.process_advertiser_impressions(target_minute)
-                    
-                    # Process advertiser conversions
                     advertisers_conversions_processed, advertiser_conversions_total, advertiser_conversion_processing_time = self.process_advertiser_conversions(target_minute)
+                    self.process_publisher_conversion_rates(target_minute)
                     
                     execution_time = time.time() - iteration_start
                     
-                    # We executed 3 Presto queries (publishers impressions, advertisers impressions, advertisers conversions)
-                    presto_queries_executed = 3
+                    # We executed 7 Presto queries:
+                    # - 1 for publishers impressions
+                    # - 1 for advertisers impressions  
+                    # - 1 for advertisers conversions
+                    # - 4 for publisher conversion rates (30, 60, 90, 180 minute windows)
+                    presto_queries_executed = 7
                     
                     # Collect stats from this iteration
                     iteration_stats = self.collect_iteration_stats(

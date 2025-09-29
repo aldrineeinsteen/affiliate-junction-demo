@@ -128,4 +128,11 @@ CREATE TABLE IF NOT EXISTS services (
     query_metrics TEXT
 );
 
+-- Create generic key/value table for NoSQL storage
+CREATE TABLE IF NOT EXISTS key_value_store (
+    key VARCHAR PRIMARY KEY,
+    value TEXT,
+    last_update TIMESTAMP
+);
+
 
