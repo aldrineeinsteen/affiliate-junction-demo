@@ -312,6 +312,117 @@ def get_advertiser_conversions(advertiser_id: str) -> List[Dict]:
         return []
 
 
+def get_conversion_timeline(advertiser_id: str, cookie_id: str) -> Dict[str, Any]:
+    """
+    Get impression timeline for a specific conversion showing all impressions between 
+    the first impression and final conversion for a given cookie and advertiser.
+    
+    Args:
+        advertiser_id: The advertiser ID
+        cookie_id: The cookie ID for the conversion
+        
+    Returns:
+        Dictionary containing:
+        - timeline: List of impression events with publisher, timestamp, and impression count
+        - first_impression: ISO timestamp of first impression
+        - conversion_time: ISO timestamp of conversion
+        - total_impressions: Total number of impression events
+        - unique_publishers: Number of unique publishers involved
+        - error: Error message if query failed
+    """
+    try:
+        # Get the conversion event details and then find all impressions between 
+        # the impression timestamp and conversion timestamp for this specific conversion
+        timeline_query = """
+            SELECT 
+                it.publishers_id,
+                it.timestamp,
+                it.impressions
+            FROM iceberg_data.affiliate_junction.impression_tracking it
+            WHERE it.advertisers_id = ?
+            AND it.cookie_id = ?
+            AND it.timestamp >= (
+                SELECT impression_timestamp 
+                FROM iceberg_data.affiliate_junction.conversions_identified 
+                WHERE advertisers_id = ? AND cookie_id = ? 
+                LIMIT 1
+            )
+            AND it.timestamp <= (
+                SELECT conversion_timestamp 
+                FROM iceberg_data.affiliate_junction.conversions_identified 
+                WHERE advertisers_id = ? AND cookie_id = ? 
+                LIMIT 1
+            )
+            ORDER BY it.timestamp ASC
+        """
+        
+        timeline_data = presto_operations.execute_query_simple(
+            timeline_query,
+            [advertiser_id, cookie_id, advertiser_id, cookie_id, advertiser_id, cookie_id],
+            f"Get impression timeline for conversion {cookie_id}"
+        )
+        
+        if not timeline_data:
+            return {
+                "error": "No impression data found for this conversion",
+                "timeline": [],
+                "first_impression": None,
+                "conversion_time": None,
+                "total_impressions": 0,
+                "unique_publishers": 0
+            }
+        
+        # Get the conversion timestamps separately for the response
+        conversion_query = """
+            SELECT impression_timestamp, conversion_timestamp
+            FROM iceberg_data.affiliate_junction.conversions_identified 
+            WHERE advertisers_id = ? AND cookie_id = ? 
+            LIMIT 1
+        """
+        
+        conversion_data = presto_operations.execute_query_simple(
+            conversion_query,
+            [advertiser_id, cookie_id],
+            f"Get conversion timestamps for {cookie_id}"
+        )
+        
+        first_impression = None
+        conversion_time = None
+        if conversion_data and conversion_data[0]:
+            first_impression = conversion_data[0].impression_timestamp
+            conversion_time = conversion_data[0].conversion_timestamp
+        
+        # Format the timeline data
+        timeline = []
+        for row in timeline_data:
+            timestamp = row.timestamp
+            timeline.append({
+                "publisher_id": row.publishers_id,
+                "timestamp": timestamp if isinstance(timestamp, str) else (timestamp.isoformat() if timestamp else None),
+                "impressions": row.impressions,
+                "formatted_time": timestamp if isinstance(timestamp, str) else (timestamp.strftime("%Y-%m-%d %H:%M:%S") if timestamp else "N/A")
+            })
+        
+        return {
+            "timeline": timeline,
+            "first_impression": first_impression if isinstance(first_impression, str) else (first_impression.isoformat() if first_impression else None),
+            "conversion_time": conversion_time if isinstance(conversion_time, str) else (conversion_time.isoformat() if conversion_time else None),
+            "total_impressions": len(timeline),
+            "unique_publishers": len(set(item["publisher_id"] for item in timeline))
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching conversion timeline for {advertiser_id}/{cookie_id}: {e}")
+        return {
+            "error": f"Failed to fetch conversion timeline: {str(e)}",
+            "timeline": [],
+            "first_impression": None,
+            "conversion_time": None,
+            "total_impressions": 0,
+            "unique_publishers": 0
+        }
+
+
 def get_all_advertisers() -> List[Dict[str, str]]:
     """
     Get all advertisers from the database.

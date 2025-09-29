@@ -467,6 +467,55 @@ def get_advertiser_conversions_endpoint(advertiser_id: str, request: Request, cu
             )
 
 
+# --- Advertiser Conversion Timeline API endpoint ---
+@app.get("/api/advertisers/{advertiser_id}/conversions/{cookie_id}/timeline")
+def get_conversion_timeline_endpoint(
+    advertiser_id: str, 
+    cookie_id: str, 
+    request: Request, 
+    current_user: str = Depends(require_auth)
+):
+    """API endpoint to get impression timeline for a specific conversion"""
+    with presto_wrapper.request_context():
+        try:
+            timeline_data = advertisers.get_conversion_timeline(advertiser_id, cookie_id)
+            
+            # Get query metrics for this request
+            query_metrics = presto_wrapper.get_request_queries()
+            
+            # Check if there was an error in the timeline data
+            if "error" in timeline_data:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": timeline_data["error"],
+                        "timeline": timeline_data.get("timeline", []),
+                        "query_metrics": query_metrics
+                    }
+                )
+            
+            # Return successful response with timeline data and query metrics
+            response_data = timeline_data.copy()
+            response_data["query_metrics"] = query_metrics
+            
+            return response_data
+            
+        except Exception as e:
+            logger.error(f"Error fetching conversion timeline for {advertiser_id}/{cookie_id}: {e}")
+            
+            # Still get query metrics even if there was an error
+            query_metrics = presto_wrapper.get_request_queries()
+            
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Failed to fetch conversion timeline",
+                    "detail": str(e),
+                    "query_metrics": query_metrics
+                }
+            )
+
+
 # --- Publisher Details API endpoint ---
 @app.get("/api/publishers/{publisher_id}")
 def get_publisher_details_endpoint(publisher_id: str, request: Request, current_user: str = Depends(require_auth)):

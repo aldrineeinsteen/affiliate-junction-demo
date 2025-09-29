@@ -373,7 +373,8 @@ function createConversionAccordionItem(conversion, index) {
     <h2 class="accordion-header" id="${headingId}">
       <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
               data-bs-target="#${collapseId}" aria-expanded="false" 
-              aria-controls="${collapseId}">
+              aria-controls="${collapseId}"
+              data-cookie-id="${conversion.cookie_id}">
         <div class="conversion-header">
           <span class="conversion-cookie">Cookie: ${conversion.cookie_id}</span>
           <span class="conversion-timestamp">${conversionTime}</span>
@@ -432,11 +433,137 @@ function createConversionAccordionItem(conversion, index) {
             </small>
           </div>
         </div>
+        
+        <!-- Timeline Container (will be populated when expanded) -->
+        <div id="timeline-${conversion.cookie_id}" class="timeline-placeholder"></div>
       </div>
     </div>
   `;
   
+  // Add event listener for accordion expansion
+  const collapseElement = accordionItem.querySelector(`#${collapseId}`);
+  collapseElement.addEventListener('show.bs.collapse', function() {
+    loadConversionTimeline(conversion.cookie_id);
+  });
+  
   return accordionItem;
+}
+
+/**
+ * Load and display timeline for a specific conversion
+ */
+async function loadConversionTimeline(cookieId) {
+  const advertiserId = getCurrentAdvertiserId();
+  const timelineContainer = document.getElementById(`timeline-${cookieId}`);
+  
+  if (!timelineContainer || !advertiserId) {
+    console.error("Timeline container or advertiser ID not found");
+    return;
+  }
+  
+  // Show loading state
+  timelineContainer.innerHTML = `
+    <div class="timeline-loading">
+      <div class="spinner-border spinner-border-sm" role="status">
+        <span class="visually-hidden">Loading timeline...</span>
+      </div>
+      <div class="timeline-loading-text">Loading impression timeline...</div>
+    </div>
+  `;
+  
+  try {
+    const response = await fetch(`/api/advertisers/${advertiserId}/conversions/${cookieId}/timeline`);
+    const data = await response.json();
+    
+    if (response.ok && data.timeline) {
+      renderConversionTimeline(timelineContainer, data);
+    } else {
+      throw new Error(data.error || "Failed to load timeline data");
+    }
+    
+  } catch (error) {
+    console.error(`Error loading timeline for cookie ${cookieId}:`, error);
+    showTimelineError(timelineContainer, error.message);
+  }
+}
+
+/**
+ * Render the conversion timeline
+ */
+function renderConversionTimeline(container, timelineData) {
+  const { timeline, total_impressions, unique_publishers, first_impression, conversion_time } = timelineData;
+  
+  if (!timeline || timeline.length === 0) {
+    container.innerHTML = `
+      <div class="timeline-empty">
+        <div class="timeline-empty-icon">📊</div>
+        <div class="timeline-empty-text">No impression timeline data available for this conversion.</div>
+      </div>
+    `;
+    return;
+  }
+  
+  // Create timeline HTML
+  let timelineHTML = `
+    <div class="conversion-timeline">
+      <div class="timeline-header">
+        <h6 class="timeline-title">🔗 Impression Timeline</h6>
+        <div class="timeline-summary">
+          ${total_impressions} impressions • ${unique_publishers} publishers
+        </div>
+      </div>
+      <div class="timeline-container">
+  `;
+  
+  // Sort timeline by timestamp
+  const sortedTimeline = timeline.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  
+  // Add timeline items
+  sortedTimeline.forEach((item, index) => {
+    const isFirst = index === 0;
+    const isLast = index === sortedTimeline.length - 1;
+    
+    let itemClass = 'timeline-item';
+    if (isFirst) itemClass += ' first-impression';
+    if (isLast) itemClass += ' conversion-event';
+    
+    timelineHTML += `
+      <div class="${itemClass}">
+        <div class="timeline-content">
+          <div class="timeline-time">${item.formatted_time}</div>
+          <div class="timeline-publisher">
+            Publisher: <strong>${item.publisher_id}</strong>
+          </div>
+          <div class="timeline-impressions">
+            <span class="badge bg-primary">${item.impressions} impression${item.impressions !== 1 ? 's' : ''}</span>
+            ${isFirst ? '<span class="badge bg-warning ms-1">First</span>' : ''}
+            ${isLast ? '<span class="badge bg-success ms-1">Conversion</span>' : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  });
+  
+  timelineHTML += `
+      </div>
+    </div>
+  `;
+  
+  container.innerHTML = timelineHTML;
+}
+
+/**
+ * Show timeline error state
+ */
+function showTimelineError(container, errorMessage) {
+  container.innerHTML = `
+    <div class="timeline-error">
+      <div class="timeline-error-icon">⚠️</div>
+      <div class="timeline-error-text">
+        Failed to load timeline: ${errorMessage}
+      </div>
+    </div>
+  `;
 }
 
 /**
