@@ -282,7 +282,6 @@ def get_all_advertisers() -> List[Dict[str, str]]:
                 "name": row.advertiser_id
             })
         
-        logger.info(f"Retrieved all {len(advertisers)} advertisers")
         return advertisers
         
     except Exception as e:

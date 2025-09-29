@@ -282,7 +282,6 @@ def get_all_publishers() -> List[Dict[str, str]]:
                 "name": row.publisher_id
             })
         
-        logger.info(f"Retrieved all {len(publishers)} publishers")
         return publishers
         
     except Exception as e:
