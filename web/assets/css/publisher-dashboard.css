@@ -1,0 +1,36 @@
+/* Publisher Dashboard page specific styles */
+
+/* Chart styling - specific to dashboard */
+#chart-container {
+  position: relative;
+  height: 400px;
+  margin-top: 20px;
+}
+
+#timeSeriesChart {
+  max-height: 400px;
+}
+
+/* Chart loading and error states */
+#chart-loading {
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+#chart-error {
+  margin-top: 20px;
+}
+
+/* Responsive chart adjustments - dashboard specific */
+@media (max-width: 768px) {
+  #chart-container {
+    height: 300px;
+  }
+  
+  #timeSeriesChart {
+    max-height: 300px;
+  }
+}

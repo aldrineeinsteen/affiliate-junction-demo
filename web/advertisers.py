@@ -262,6 +262,39 @@ def _format_timestamp(unix_timestamp: int) -> str:
         return str(unix_timestamp)
 
 
+def get_advertiser_conversions(advertiser_id: str) -> List[Dict]:
+    """
+    Get all conversions for a specific advertiser from the conversion_tracking table.
+    Ordered by timestamp DESC (newest first).
+    
+    Args:
+        advertiser_id: The advertiser ID to look up conversions for
+        
+    Returns:
+        List of dictionaries containing conversion data:
+        [{"cookie_id": "abc123", "timestamp": datetime, "advertiser_id": "ADV123"}, ...]
+    """
+    try:
+        query = "SELECT advertisers_id, timestamp, cookie_id FROM conversion_tracking WHERE advertisers_id = ? ORDER BY timestamp DESC"
+        
+        result = hcd_operations.execute_query_with_retry(query, [advertiser_id], query_description=f"Get conversions for advertiser {advertiser_id}")
+        
+        conversions = []
+        for row in result:
+            conversions.append({
+                "advertiser_id": row.advertisers_id,
+                "cookie_id": row.cookie_id,
+                "timestamp": row.timestamp
+            })
+        
+        logger.info(f"Retrieved {len(conversions)} conversions for advertiser {advertiser_id}")
+        return conversions
+        
+    except Exception as e:
+        logger.error(f"Error fetching conversions for advertiser {advertiser_id}: {e}")
+        return []
+
+
 def get_all_advertisers() -> List[Dict[str, str]]:
     """
     Get all advertisers from the database.

@@ -24,6 +24,89 @@
   margin-top: 20px;
 }
 
+/* Conversions Accordion Styling */
+#conversions-container {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.conversions-accordion .accordion-item {
+  border: 1px solid #dee2e6;
+  margin-bottom: 8px;
+  border-radius: 6px;
+}
+
+.conversions-accordion .accordion-header {
+  padding: 0;
+}
+
+.conversions-accordion .accordion-button {
+  background-color: #f8f9fa;
+  border: none;
+  padding: 12px 16px;
+  font-weight: 500;
+  color: #495057;
+  transition: all 0.15s ease-in-out;
+}
+
+.conversions-accordion .accordion-button:not(.collapsed) {
+  background-color: #e7f3ff;
+  color: #0066cc;
+  box-shadow: none;
+}
+
+.conversions-accordion .accordion-button:focus {
+  border-color: #86b7fe;
+  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+.conversions-accordion .accordion-button::after {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%23212529'%3e%3cpath fill-rule='evenodd' d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3e%3c/svg%3e");
+}
+
+.conversions-accordion .accordion-body {
+  padding: 16px;
+  background-color: #ffffff;
+  border-top: 1px solid #dee2e6;
+}
+
+.conversion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.conversion-cookie {
+  font-family: 'Courier New', monospace;
+  font-weight: 600;
+  color: #495057;
+}
+
+.conversion-timestamp {
+  font-size: 0.875rem;
+  color: #6c757d;
+  font-weight: 400;
+}
+
+.conversion-placeholder {
+  color: #6c757d;
+  font-style: italic;
+  text-align: center;
+  padding: 20px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+}
+
+/* Loading states for conversions */
+#conversions-loading {
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
 /* Responsive chart adjustments - dashboard specific */
 @media (max-width: 768px) {
   #chart-container {
@@ -32,5 +115,20 @@
   
   #timeSeriesChart {
     max-height: 300px;
+  }
+
+  /* Mobile conversions styling */
+  .conversion-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  
+  .conversion-timestamp {
+    font-size: 0.8rem;
+  }
+  
+  #conversions-container {
+    max-height: 400px;
   }
 }

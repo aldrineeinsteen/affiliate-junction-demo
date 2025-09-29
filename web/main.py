@@ -429,6 +429,37 @@ def get_advertiser_chart_endpoint(advertiser_id: str, request: Request, current_
             )
 
 
+# --- Advertiser Conversions API endpoint ---
+@app.get("/api/advertisers/{advertiser_id}/conversions")
+def get_advertiser_conversions_endpoint(advertiser_id: str, request: Request, current_user: str = Depends(require_auth)):
+    """API endpoint to get conversions for a specific advertiser"""
+    with cassandra_wrapper.request_context():
+        try:
+            conversions_data = advertisers.get_advertiser_conversions(advertiser_id)
+            
+            # Get query metrics for this request
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return {
+                "conversions": conversions_data,
+                "query_metrics": query_metrics
+            }
+            
+        except Exception as e:
+            logger.error(f"Error fetching advertiser conversions for {advertiser_id}: {e}")
+            
+            # Still get query metrics even if there was an error
+            query_metrics = cassandra_wrapper.get_request_queries()
+            
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": "Failed to fetch advertiser conversions",
+                    "query_metrics": query_metrics
+                }
+            )
+
+
 # --- Publisher Details API endpoint ---
 @app.get("/api/publishers/{publisher_id}")
 def get_publisher_details_endpoint(publisher_id: str, request: Request, current_user: str = Depends(require_auth)):

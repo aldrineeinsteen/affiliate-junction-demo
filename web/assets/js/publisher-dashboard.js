@@ -1,38 +1,38 @@
 /**
- * Advertiser Dashboard JavaScript
- * Handles dashboard data loading, chart rendering, and advertiser-specific functionality
+ * Publisher Dashboard JavaScript
+ * Handles dashboard data loading, chart rendering, and publisher-specific functionality
  */
 
 /**
- * Get current advertiser ID from the page data attribute
+ * Get current publisher ID from the page data attribute
  */
-function getCurrentAdvertiserId() {
+function getCurrentPublisherId() {
   const body = document.body;
-  return body.getAttribute('data-advertiser-id');
+  return body.getAttribute('data-publisher-id');
 }
 
 /**
- * Load advertiser dashboard data
+ * Load publisher dashboard data
  */
 async function loadDashboardData() {
-  const advertiserId = getCurrentAdvertiserId();
+  const publisherId = getCurrentPublisherId();
   
-  if (!advertiserId) {
-    console.error("No advertiser ID found in URL");
-    showError("Invalid advertiser ID");
+  if (!publisherId) {
+    console.error("No publisher ID found in URL");
+    showError("Invalid publisher ID");
     return;
   }
   
   try {
-    const response = await fetch(`/api/advertisers/${advertiserId}/dashboard`);
+    const response = await fetch(`/api/publishers/${publisherId}/dashboard`);
     const data = await response.json();
     
     if (response.ok && data.dashboard) {
       const dashboard = data.dashboard;
       
       // Update dashboard content
-      updateElement("advertiser-name", dashboard.name);
-      updateElement("advertiser-id", dashboard.advertiser_id);
+      updateElement("publisher-name", dashboard.name);
+      updateElement("publisher-id", dashboard.publisher_id);
       updateElement("total-impressions", dashboard.total_impressions.toLocaleString());
       updateElement("total-conversions", dashboard.total_conversions.toLocaleString());
       
@@ -55,16 +55,13 @@ async function loadDashboardData() {
       // Load chart data after dashboard is loaded
       loadChartData();
       
-      // Load conversions data after dashboard is loaded
-      loadConversionsData();
-      
     } else {
       throw new Error(data.error || "Failed to load dashboard data");
     }
     
   } catch (error) {
     console.error("Error loading dashboard data:", error);
-    showError(error.message || "Failed to load advertiser data.");
+    showError(error.message || "Failed to load publisher data.");
   }
 }
 
@@ -72,15 +69,15 @@ async function loadDashboardData() {
  * Load and render chart data
  */
 async function loadChartData() {
-  const advertiserId = getCurrentAdvertiserId();
+  const publisherId = getCurrentPublisherId();
   
-  if (!advertiserId) {
-    console.error("No advertiser ID found for chart loading");
+  if (!publisherId) {
+    console.error("No publisher ID found for chart loading");
     return;
   }
   
   try {
-    const response = await fetch(`/api/advertisers/${advertiserId}/chart`);
+    const response = await fetch(`/api/publishers/${publisherId}/chart`);
     const data = await response.json();
     
     if (response.ok && data.chart) {
@@ -277,118 +274,6 @@ function renderSparkline(canvasId, data, color) {
   });
 }
 
-/**
- * Load and display conversions data
- */
-async function loadConversionsData() {
-  const advertiserId = getCurrentAdvertiserId();
-  
-  if (!advertiserId) {
-    console.error("No advertiser ID found for conversions loading");
-    return;
-  }
-  
-  try {
-    const response = await fetch(`/api/advertisers/${advertiserId}/conversions`);
-    const data = await response.json();
-    
-    if (response.ok) {
-      renderConversionsAccordion(data.conversions);
-    } else {
-      throw new Error(data.error || "Failed to load conversions data");
-    }
-    
-  } catch (error) {
-    console.error("Error loading conversions data:", error);
-    showConversionsError();
-  }
-}
-
-/**
- * Render the conversions accordion
- */
-function renderConversionsAccordion(conversions) {
-  const accordionContainer = document.getElementById('conversionsAccordion');
-  
-  if (!accordionContainer) {
-    console.error('Conversions accordion container not found');
-    return;
-  }
-  
-  // Clear existing content
-  accordionContainer.innerHTML = '';
-  
-  if (!conversions || conversions.length === 0) {
-    hideElement("conversions-loading");
-    showElement("no-conversions");
-    return;
-  }
-  
-  // Add conversions-accordion class to the accordion
-  accordionContainer.className = 'accordion conversions-accordion';
-  
-  // Create accordion items for each conversion
-  conversions.forEach((conversion, index) => {
-    const accordionItem = createConversionAccordionItem(conversion, index);
-    accordionContainer.appendChild(accordionItem);
-  });
-  
-  // Hide loading state and show conversions
-  hideElement("conversions-loading");
-  showElement("conversions-container");
-}
-
-/**
- * Create an accordion item for a single conversion
- */
-function createConversionAccordionItem(conversion, index) {
-  const itemId = `conversion-${index}`;
-  const headingId = `heading-${index}`;
-  const collapseId = `collapse-${index}`;
-  
-  // Format timestamp
-  const timestamp = new Date(conversion.timestamp).toLocaleString();
-  
-  // Create the accordion item
-  const accordionItem = document.createElement('div');
-  accordionItem.className = 'accordion-item';
-  
-  accordionItem.innerHTML = `
-    <h2 class="accordion-header" id="${headingId}">
-      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
-              data-bs-target="#${collapseId}" aria-expanded="false" 
-              aria-controls="${collapseId}">
-        <div class="conversion-header">
-          <span class="conversion-cookie">Cookie: ${conversion.cookie_id}</span>
-          <span class="conversion-timestamp">${timestamp}</span>
-        </div>
-      </button>
-    </h2>
-    <div id="${collapseId}" class="accordion-collapse collapse" 
-         aria-labelledby="${headingId}" data-bs-parent="#conversionsAccordion">
-      <div class="accordion-body">
-        <div class="conversion-placeholder">
-          <p>📊 Detailed conversion analytics will be displayed here</p>
-          <p class="mb-0">Coming soon: attribution tracking, revenue data, and conversion funnel details</p>
-        </div>
-      </div>
-    </div>
-  `;
-  
-  return accordionItem;
-}
-
-/**
- * Show conversions error state
- */
-function showConversionsError() {
-  hideElement("conversions-loading");
-  const conversionsErrorEl = document.getElementById("conversions-error");
-  if (conversionsErrorEl) {
-    conversionsErrorEl.classList.remove("d-none");
-  }
-}
-
 // Utility functions
 function updateElement(id, content) {
   const element = document.getElementById(id);
@@ -431,15 +316,15 @@ function showChartError() {
 }
 
 /**
- * Initialize the advertiser dashboard page
+ * Initialize the publisher dashboard page
  */
-function initializeAdvertiserDashboard() {
+function initializePublisherDashboard() {
   loadDashboardData();
 }
 
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initializeAdvertiserDashboard);
+  document.addEventListener('DOMContentLoaded', initializePublisherDashboard);
 } else {
-  initializeAdvertiserDashboard();
+  initializePublisherDashboard();
 }

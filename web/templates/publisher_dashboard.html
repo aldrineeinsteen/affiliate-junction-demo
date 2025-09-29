@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <title>Advertiser Dashboard</title>
+  <title>Publisher Dashboard</title>
   
   <!-- Common head elements -->
   {% include 'partials/html_head.html' %}
@@ -9,10 +9,10 @@
   <!-- Chart.js via CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
   
-  <!-- Advertiser Dashboard specific styles -->
-  <link rel="stylesheet" href="/assets/css/advertiser-dashboard.css">
+  <!-- Publisher Dashboard specific styles -->
+  <link rel="stylesheet" href="/assets/css/publisher-dashboard.css">
 </head>
-<body class="bg-light" data-advertiser-id="{{ advertiser_id }}">
+<body class="bg-light" data-publisher-id="{{ publisher_id }}">
 
 <!-- Header -->
 {% include 'partials/header.html' %}
@@ -28,7 +28,7 @@
     <div class="col-md-9 offset-md-3">
       <div class="p-3 py-5">
         <div class="d-flex justify-content-between align-items-center mb-4">
-          <h1>📊 Advertiser Dashboard</h1>
+          <h1>📊 Publisher Dashboard</h1>
           <a href="/" class="btn btn-outline-secondary">← Back to Home</a>
         </div>
 
@@ -37,25 +37,25 @@
           <div class="spinner-border" role="status">
             <span class="visually-hidden">Loading...</span>
           </div>
-          <p class="mt-2">Loading advertiser data...</p>
+          <p class="mt-2">Loading publisher data...</p>
         </div>
 
         <!-- Error State -->
         <div id="error" class="alert alert-danger d-none" role="alert">
           <h4 class="alert-heading">Error</h4>
-          <p id="error-message">Failed to load advertiser data.</p>
+          <p id="error-message">Failed to load publisher data.</p>
         </div>
 
         <!-- Dashboard Content -->
         <div id="dashboard" class="d-none">
-          <!-- Advertiser Info -->
+          <!-- Publisher Info -->
           <div class="row mb-4">
             <div class="col-12">
               <div class="card">
                 <div class="card-body">
-                  <h5 class="card-title" id="advertiser-name">Advertiser Name</h5>
+                  <h5 class="card-title" id="publisher-name">Publisher Name</h5>
                   <p class="card-text">
-                    <span class="badge bg-primary">ID: <span id="advertiser-id">{{ advertiser_id }}</span></span>
+                    <span class="badge bg-primary">ID: <span id="publisher-id">{{ publisher_id }}</span></span>
                   </p>
                   <p class="text-muted small">
                     <i class="bi bi-clock"></i> Last updated: <span id="last-updated">-</span>
@@ -176,42 +176,6 @@
               </div>
             </div>
           </div>
-
-          <!-- Conversions Accordion -->
-          <div class="row mt-4">
-            <div class="col-12">
-              <div class="card">
-                <div class="card-body">
-                  <h5 class="card-title">🎯 Recent Conversions</h5>
-                  
-                  <!-- Conversions Loading State -->
-                  <div id="conversions-loading" class="text-center my-4">
-                    <div class="spinner-border spinner-border-sm" role="status">
-                      <span class="visually-hidden">Loading conversions...</span>
-                    </div>
-                    <p class="mt-2 text-muted small">Loading conversion data...</p>
-                  </div>
-
-                  <!-- Conversions Container -->
-                  <div id="conversions-container" class="d-none">
-                    <div class="accordion" id="conversionsAccordion"></div>
-                  </div>
-
-                  <!-- No Conversions State -->
-                  <div id="no-conversions" class="alert alert-info d-none" role="alert">
-                    <h6 class="alert-heading">No Conversions Found</h6>
-                    <p class="mb-0">This advertiser doesn't have any conversions yet. Conversions will appear here when they occur.</p>
-                  </div>
-
-                  <!-- Conversions Error State -->
-                  <div id="conversions-error" class="alert alert-warning d-none" role="alert">
-                    <h6 class="alert-heading">Conversion Data Unavailable</h6>
-                    <p class="mb-0">Unable to load conversion data. Please try refreshing the page.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -228,8 +192,8 @@
 <script src="/assets/js/partial-query-system.js"></script>
 <script src="/assets/js/partial-sidebar.js"></script>
 
-<!-- Advertiser Dashboard Specific JavaScript -->
-<script src="/assets/js/advertiser-dashboard.js"></script>
+<!-- Publisher Dashboard Specific JavaScript -->
+<script src="/assets/js/publisher-dashboard.js"></script>
 
 </body>
 </html>
