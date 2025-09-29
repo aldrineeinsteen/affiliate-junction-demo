@@ -461,29 +461,110 @@ async function loadConversionTimeline(cookieId) {
     return;
   }
   
-  // Show loading state
+  // Show loading state with progress bar
   timelineContainer.innerHTML = `
     <div class="timeline-loading">
-      <div class="spinner-border spinner-border-sm" role="status">
-        <span class="visually-hidden">Loading timeline...</span>
+      <div class="timeline-loading-text">Presto query to load timeline...</div>
+      <div class="progress" style="height: 12px; margin-top: 10px; background-color: #e9ecef;">
+        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+             role="progressbar" 
+             style="width: 0%; transition: none; background-color: #0d6efd;"
+             aria-valuenow="0" 
+             aria-valuemin="0" 
+             aria-valuemax="100">
+        </div>
       </div>
-      <div class="timeline-loading-text">Loading impression timeline...</div>
+      <div class="progress-percentage" style="font-size: 0.75rem; color: #6c757d; margin-top: 5px;">0%</div>
     </div>
   `;
+  
+  let progressComplete = false;
+  let apiComplete = false;
+  let apiData = null;
+  let apiError = null;
+  
+  // Start the 30-second progress bar with even increments
+  const progressBar = timelineContainer.querySelector('.progress-bar');
+  const progressText = timelineContainer.querySelector('.progress-percentage');
+  let currentProgress = 0;
+  
+  const progressInterval = setInterval(() => {
+    if (progressComplete) {
+      clearInterval(progressInterval);
+      return;
+    }
+    
+    currentProgress += (100 / 300); // 300 increments over 30 seconds (100ms intervals)
+    
+    if (currentProgress >= 100) {
+      currentProgress = 100;
+      progressComplete = true;
+      clearInterval(progressInterval);
+    }
+    
+    if (progressBar) {
+      progressBar.style.width = `${currentProgress}%`;
+      progressBar.setAttribute('aria-valuenow', Math.round(currentProgress));
+    }
+    if (progressText) {
+      progressText.textContent = `${Math.round(currentProgress)}%`;
+    }
+    
+    // If API completed early, finish the progress and show results
+    if (apiComplete) {
+      progressComplete = true;
+      clearInterval(progressInterval);
+      
+      if (progressBar) {
+        progressBar.style.width = '100%';
+        progressBar.setAttribute('aria-valuenow', '100');
+      }
+      if (progressText) {
+        progressText.textContent = '100%';
+      }
+      
+      // Small delay to show 100% completion, then render results
+      setTimeout(() => {
+        if (apiError) {
+          showTimelineError(timelineContainer, apiError);
+        } else if (apiData) {
+          renderConversionTimeline(timelineContainer, apiData);
+        }
+      }, 500);
+    }
+  }, 100); // Update every 100ms for smooth animation
   
   try {
     const response = await fetch(`/api/advertisers/${advertiserId}/conversions/${cookieId}/timeline`);
     const data = await response.json();
     
     if (response.ok && data.timeline) {
-      renderConversionTimeline(timelineContainer, data);
+      apiData = data;
+      apiComplete = true;
+      
+      // If progress bar already finished, show results immediately
+      if (progressComplete) {
+        renderConversionTimeline(timelineContainer, data);
+      }
     } else {
-      throw new Error(data.error || "Failed to load timeline data");
+      apiError = data.error || "Failed to load timeline data";
+      apiComplete = true;
+      
+      // If progress bar already finished, show error immediately
+      if (progressComplete) {
+        showTimelineError(timelineContainer, apiError);
+      }
     }
     
   } catch (error) {
     console.error(`Error loading timeline for cookie ${cookieId}:`, error);
-    showTimelineError(timelineContainer, error.message);
+    apiError = error.message;
+    apiComplete = true;
+    
+    // If progress bar already finished, show error immediately
+    if (progressComplete) {
+      showTimelineError(timelineContainer, apiError);
+    }
   }
 }
 

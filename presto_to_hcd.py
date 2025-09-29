@@ -851,8 +851,8 @@ class AffiliateJunctionInsights:
         processing_start_time = time.time()
         
         try:
-            # Check if we should run table size enumeration (every 5 minutes)
-            run_table_sizes = target_minute.minute % 5 == 0
+            # Check if we should run table size enumeration (every 10 minutes)
+            run_table_sizes = target_minute.minute % 10 == 0
             
             # Execute all processing tasks in parallel (main tasks + conversion rates + optional table sizes)
             max_workers = 6 if run_table_sizes else 5
@@ -866,7 +866,7 @@ class AffiliateJunctionInsights:
                 # Submit conversion rates processing in parallel (no dependency on main tasks)
                 conversion_rates_future = executor.submit(self.process_publisher_conversion_rates_parallel, target_minute)
                 
-                # Submit table sizes processing every 5 minutes
+                # Submit table sizes processing every 10 minutes
                 table_sizes_future = None
                 if run_table_sizes:
                     table_sizes_future = executor.submit(self.get_presto_table_sizes)

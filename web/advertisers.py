@@ -22,27 +22,41 @@ def get_random_advertisers(limit: int = 10) -> List[Dict[str, str]]:
         [{"advertiser_id": "ADV123", "name": "ADV123"}, ...]
     """
     try:
-        # Query to get advertisers - using LIMIT to control result size
-        # Note: Cassandra doesn't have true random sampling, but we can limit results
-        query = "SELECT advertiser_id FROM advertisers LIMIT ?"
+        # Query to get advertisers with their conversion and impression data for sorting
+        query = "SELECT advertiser_id, conversions, impressions FROM advertisers"
         
-        result = hcd_operations.execute_query_with_retry(query, [limit * 3], query_description="Fetch random advertisers for dropdown")  # Get more than needed to allow for filtering
+        result = hcd_operations.execute_query_with_retry(query, query_description="Fetch advertisers with conversion and impression data for sorting")
         
         advertisers = []
-        seen_ids = set()
         
-        advertiser_ids = [row.advertiser_id for row in result]
-        random.shuffle(advertiser_ids)
-        selected_ids = advertiser_ids[:limit]
-
-        advertisers = []
-        for advertiser_id in selected_ids:
+        for row in result:
+            # Calculate total conversions and impressions
+            total_conversions = _sum_json_counts(row.conversions)
+            total_impressions = _sum_json_counts(row.impressions)
+            
             advertisers.append({
-            "advertiser_id": advertiser_id,
-            "name": advertiser_id  # Using ID as display name for now
+                "advertiser_id": row.advertiser_id,
+                "name": row.advertiser_id,  # Using ID as display name for now
+                "total_conversions": total_conversions,
+                "total_impressions": total_impressions
             })
-        logger.info(f"Retrieved {len(advertisers)} advertisers")
-        return advertisers
+        
+        # Sort by total conversions (descending), then by total impressions (descending)
+        advertisers.sort(key=lambda x: (x["total_conversions"], x["total_impressions"]), reverse=True)
+        
+        # Return only the top 'limit' advertisers
+        top_advertisers = advertisers[:limit]
+        
+        # Remove the sorting fields from the final result to maintain original structure
+        final_advertisers = []
+        for advertiser in top_advertisers:
+            final_advertisers.append({
+                "advertiser_id": advertiser["advertiser_id"],
+                "name": advertiser["name"]
+            })
+        
+        logger.info(f"Retrieved {len(final_advertisers)} top advertisers sorted by conversions and impressions")
+        return final_advertisers
         
     except Exception as e:
         logger.error(f"Error fetching advertisers: {e}")
@@ -334,31 +348,31 @@ def get_conversion_timeline(advertiser_id: str, cookie_id: str) -> Dict[str, Any
         # Get the conversion event details and then find all impressions between 
         # the impression timestamp and conversion timestamp for this specific conversion
         timeline_query = """
-            SELECT 
-                it.publishers_id,
-                it.timestamp,
-                it.impressions
-            FROM iceberg_data.affiliate_junction.impression_tracking it
-            WHERE it.advertisers_id = ?
-            AND it.cookie_id = ?
-            AND it.timestamp >= (
-                SELECT impression_timestamp 
-                FROM iceberg_data.affiliate_junction.conversions_identified 
-                WHERE advertisers_id = ? AND cookie_id = ? 
-                LIMIT 1
+            WITH it_f AS (
+                SELECT *
+                FROM iceberg_data.affiliate_junction.impression_tracking
+                WHERE advertisers_id = ?
+                  AND cookie_id = ?
+            ),
+            ci_f AS (
+                SELECT *
+                FROM iceberg_data.affiliate_junction.conversions_identified
+                WHERE advertisers_id = ?
+                  AND cookie_id = ?
             )
-            AND it.timestamp <= (
-                SELECT conversion_timestamp 
-                FROM iceberg_data.affiliate_junction.conversions_identified 
-                WHERE advertisers_id = ? AND cookie_id = ? 
-                LIMIT 1
-            )
-            ORDER BY it.timestamp ASC
+            SELECT it_f.publishers_id, it_f.timestamp, it_f.impressions
+            FROM it_f
+            JOIN ci_f
+              ON it_f.advertisers_id = ci_f.advertisers_id
+             AND it_f.cookie_id = ci_f.cookie_id
+            WHERE it_f.timestamp BETWEEN ci_f.impression_timestamp AND ci_f.conversion_timestamp
+            ORDER BY it_f.timestamp ASC
+            LIMIT 100
         """
         
         timeline_data = presto_operations.execute_query_simple(
             timeline_query,
-            [advertiser_id, cookie_id, advertiser_id, cookie_id, advertiser_id, cookie_id],
+            [advertiser_id, cookie_id, advertiser_id, cookie_id],
             f"Get impression timeline for conversion {cookie_id}"
         )
         
@@ -372,25 +386,9 @@ def get_conversion_timeline(advertiser_id: str, cookie_id: str) -> Dict[str, Any
                 "unique_publishers": 0
             }
         
-        # Get the conversion timestamps separately for the response
-        conversion_query = """
-            SELECT impression_timestamp, conversion_timestamp
-            FROM iceberg_data.affiliate_junction.conversions_identified 
-            WHERE advertisers_id = ? AND cookie_id = ? 
-            LIMIT 1
-        """
-        
-        conversion_data = presto_operations.execute_query_simple(
-            conversion_query,
-            [advertiser_id, cookie_id],
-            f"Get conversion timestamps for {cookie_id}"
-        )
-        
+        # Note: conversion timestamps are already available on the frontend
         first_impression = None
         conversion_time = None
-        if conversion_data and conversion_data[0]:
-            first_impression = conversion_data[0].impression_timestamp
-            conversion_time = conversion_data[0].conversion_timestamp
         
         # Format the timeline data
         timeline = []
