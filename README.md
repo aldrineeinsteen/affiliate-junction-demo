@@ -23,10 +23,25 @@ This project includes a custom web UI that showcases how a customer can leverage
 
 The web interface provides role-based dashboards demonstrating federated analytics across watsonx.data's hybrid storage architecture. Access the interface at `http://localhost:10000` after running the setup.
 
-Login with the user `watsonx` and password `watsonx.data`.
+
 
 
 ### Available Screens
+
+#### Login
+
+Login with the user `watsonx` and password `watsonx.data`.
+
+<img width="1483" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/543d989d-3dcf-4dd9-be66-6a2484858f86">
+
+
+#### Dashboard Overview (Index)
+**Route:** `/`
+
+The main landing page provides a comprehensive overview of the affiliate marketing ecosystem with real-time metrics and navigation to specialized views. Features quick access to key performance indicators and system health status.  It serves to orient attendees to the purpose and flow of the data as part of this demo.
+
+<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/6c0c58d6-6e40-4ab4-a707-e16908f2251c">
+
 
 #### Query Viewer
 
@@ -48,12 +63,12 @@ The Query Viewer showcases the dual-write architecture in action by displaying h
 **Access Method:**
 Click the query panel toggle button (typically located on the right side of any screen) to reveal the sliding panel interface. The badge indicator shows the count of unread queries, and the panel maintains separate counters for HCD and Presto operations.
 
-*[Screenshot placeholder]*
+<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/a663601b-906b-4987-8c38-123dc43d7ff5">
 
-#### Dashboard Overview (Index)
-**Route:** `/`
+<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/2b2a3db4-13ab-4d7b-8889-0cd966edaa77">
 
-The main landing page provides a comprehensive overview of the affiliate marketing ecosystem with real-time metrics and navigation to specialized views. Features quick access to key performance indicators and system health status.
+
+
 
 *[Screenshot placeholder]*
 
