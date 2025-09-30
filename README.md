@@ -1,6 +1,12 @@
 # affiliate-junction-demo
 HCD + Preso demo of an affiliate marketing organization.  This project generates synthetic data that is spread across HCD and Presto/Iceberg instances within the watsonx.data instance.
 
+**Purpose:** This demonstration showcases watsonx.data's federated architecture capabilities through:
+- **RT web-scale queries** using HCD (Cassandra) for real-time operational data
+- **Historical/Analytic queries** using Presto backed by Iceberg tables for complex analytics
+- **Federated queries** across different data sources combining operational and analytical workloads
+- **Full transparency** into the queries that are used to deliver a complete WUI + ETL solution
+
 This project also includes a WUI with views application to a number of distinct personas:
 
 * Publisher view
@@ -15,6 +21,94 @@ This project also includes a WUI with views application to a number of distinct 
 
 This project includes a custom web UI that showcases how a customer can leverage the data endpoints to insights based on both realtime data stored within the Hyperconverged Database (Cassandra) and the Data Lake (Presto / Iceberg).
 
+The web interface provides role-based dashboards demonstrating federated analytics across watsonx.data's hybrid storage architecture. Access the interface at `http://localhost:10000` after running the setup.
+
+Login with the user `watsonx` and password `watsonx.data`.
+
+
+### Available Screens
+
+#### Query Viewer
+
+Available on every screen throughout the application, the Query Viewer provides real-time transparency into the federated data access patterns that power the affiliate marketing analytics. This feature demonstrates watsonx.data's ability to seamlessly coordinate queries across multiple data sources.
+
+**Key Features:**
+- **Real-time Query Monitoring**: Live tracking of all SQL operations as they execute against HCD (Cassandra) and Presto/Iceberg
+- **Federated Query Visualization**: Clear distinction between operational queries (HCD) and analytical queries (Presto) with separate counters
+- **Query Details Panel**: Expandable view showing complete SQL syntax, execution parameters, and performance metrics
+- **Execution Timing**: Millisecond-precision timing for performance analysis and optimization
+- **Query History**: Persistent log of recent database operations with status indicators (pending, success, error)
+
+**Technical Demonstration:**
+The Query Viewer showcases the dual-write architecture in action by displaying how the same business logic triggers different query patterns:
+- **HCD Queries**: Fast, partition-targeted reads for real-time dashboard updates
+- **Presto Queries**: Complex analytical joins across time-partitioned data for trend analysis
+- **Cross-source Correlation**: Visual representation of how federated queries combine operational and analytical data
+
+**Access Method:**
+Click the query panel toggle button (typically located on the right side of any screen) to reveal the sliding panel interface. The badge indicator shows the count of unread queries, and the panel maintains separate counters for HCD and Presto operations.
+
+*[Screenshot placeholder]*
+
+#### Dashboard Overview (Index)
+**Route:** `/`
+
+The main landing page provides a comprehensive overview of the affiliate marketing ecosystem with real-time metrics and navigation to specialized views. Features quick access to key performance indicators and system health status.
+
+*[Screenshot placeholder]*
+
+#### Publisher Dashboard
+**Route:** `/publisher/{publisher_id}`
+
+Dedicated view for content publishers showing their performance metrics including:
+- Real-time impression tracking from HCD
+- Historical conversion analytics from Presto/Iceberg  
+- Revenue trends and publisher-specific KPIs
+- Cross-advertiser performance comparisons
+
+Demonstrates federated queries joining real-time operational data with analytical datasets to provide publishers actionable insights into their content monetization.
+
+*[Screenshot placeholder]*
+
+#### Advertiser Dashboard  
+**Route:** `/advertiser/{advertiser_id}`
+
+Campaign management interface for advertisers featuring:
+- Live campaign performance monitoring
+- Conversion tracking and attribution analysis
+- ROI calculations across publisher networks
+- Historical trend analysis for optimization
+
+Showcases dual-write pattern benefits by combining immediate feedback from HCD with deep analytical views from the data lake.
+
+*[Screenshot placeholder]*
+
+#### Fraud Detection Dashboard
+**Route:** `/fraud`
+
+Advanced analytics dashboard for identifying suspicious affiliate activity:
+- Anomaly detection using historical patterns
+- Real-time fraud scoring algorithms  
+- Cross-correlation analysis between publishers and advertisers
+- Investigation tools for manual review
+
+Demonstrates complex analytical capabilities enabled by watsonx.data's federated query engine across multiple data sources.
+
+*[Screenshot placeholder]*
+
+#### Services Administration
+**Route:** `/services`
+
+System administration interface for monitoring the data pipeline:
+- Real-time service health monitoring
+- Data flow metrics between HCD and Presto
+- System performance dashboards
+- Service restart and configuration management
+
+Provides visibility into the backend ETL processes and dual-write architecture maintenance.
+
+*[Screenshot placeholder]*
+
 
 
 
@@ -27,7 +121,7 @@ You may access the watsonx.data to issue ad-hoc queries.
 
 View data from our RT tables hosted in HCD
 
-```
+```sql
 -- Show avertiser impressions on each publisher's site bucketed by timestamp
 SELECT * FROM  hcd.affiliate_junction.conversion_tracking LIMIT 10;
 
@@ -38,8 +132,17 @@ SELECT * FROM  hcd.affiliate_junction.conversion_tracking LIMIT 10;
 
 View historical data view Presto.  This SQL interface supports more powerful data manipulation
 
-```
-# TODO
+```sql
+-- Show top performing publishers by total impressions over last 24 hours
+SELECT 
+  publishers_id,
+  SUM(impressions) as total_impressions,
+  COUNT(DISTINCT advertisers_id) as unique_advertisers
+FROM iceberg_data.affiliate_junction.impression_tracking
+WHERE timestamp >= current_timestamp - INTERVAL '1' DAY
+GROUP BY publishers_id
+ORDER BY total_impressions DESC
+LIMIT 10;
 ```
 
 
@@ -47,8 +150,32 @@ View historical data view Presto.  This SQL interface supports more powerful dat
 
 The real power of watsonx.data is executing federated queries across diverse datasources.
 
-```
-# TODO
+```sql
+-- Join real-time impressions with historical conversion rates
+SELECT 
+  hcd_data.publishers_id,
+  hcd_data.recent_impressions,
+  iceberg_data.avg_conversion_rate,
+  ROUND(hcd_data.recent_impressions * iceberg_data.avg_conversion_rate / 100, 2) as predicted_conversions
+FROM (
+  SELECT 
+    publishers_id,
+    COUNT(*) as recent_impressions
+  FROM hcd.affiliate_junction.impressions_by_minute
+  WHERE bucket_date >= DATE_ADD('minute', -5, now())
+  GROUP BY publishers_id
+) hcd_data
+JOIN (
+  SELECT 
+    publishers_id,
+    AVG(CAST(impressions AS DOUBLE)) as avg_impressions,
+    COUNT(*) * 100.0 / AVG(CAST(impressions AS DOUBLE)) as avg_conversion_rate
+  FROM iceberg_data.affiliate_junction.impression_tracking
+  WHERE timestamp >= DATE_ADD('day', -7, now())
+  GROUP BY publishers_id
+  HAVING AVG(CAST(impressions AS DOUBLE)) > 0
+) iceberg_data ON hcd_data.publishers_id = iceberg_data.publishers_id
+ORDER BY predicted_conversions DESC;
 ```
 
 
@@ -80,7 +207,7 @@ Backend ops are python scripts managed by `systemd` with unit files.
 #### Traffic Generator Service
 Generates synthetic affiliate marketing data and writes it to the HCD (Cassandra) database.
 
-```
+```bash
 # Service operations
 sudo systemctl start generate_traffic
 sudo systemctl status generate_traffic
@@ -93,7 +220,7 @@ journalctl -u generate_traffic -f
 #### HCD to Presto Transfer Service
 Transfers data from the HCD (Cassandra) database to Presto/Iceberg for analytical processing.
 
-```
+```bash
 # Service operations
 sudo systemctl start hcd_to_presto
 sudo systemctl status hcd_to_presto
@@ -106,7 +233,7 @@ journalctl -u hcd_to_presto -f
 #### Presto Cleanup Service
 Performs maintenance and cleanup operations on the Presto data lake storage.
 
-```
+```bash
 # Service operations
 sudo systemctl start presto_cleanup
 sudo systemctl status presto_cleanup
@@ -116,13 +243,52 @@ sudo systemctl restart presto_cleanup
 journalctl -u presto_cleanup -f
 ```
 
+#### Presto to HCD Transfer Service
+Transfers data from Presto/Iceberg back to the HCD (Cassandra) database for specific use cases.
+
+```bash
+# Service operations
+sudo systemctl start presto_to_hcd
+sudo systemctl status presto_to_hcd
+sudo systemctl restart presto_to_hcd
+
+# View logs
+journalctl -u presto_to_hcd -f
+```
+
+#### Presto Insights Service
+Generates analytical insights and reports from Presto/Iceberg data.
+
+```bash
+# Service operations
+sudo systemctl start presto_insights
+sudo systemctl status presto_insights
+sudo systemctl restart presto_insights
+
+# View logs
+journalctl -u presto_insights -f
+```
+
+#### Web UI Service (Uvicorn)
+Serves the FastAPI web application providing the user interface for the affiliate marketing analytics platform.
+
+```bash
+# Service operations
+sudo systemctl start uvicorn
+sudo systemctl status uvicorn
+sudo systemctl restart uvicorn
+
+# View logs
+journalctl -u uvicorn -f
+```
+
 
 
 ### HCD CQL Console Access
 
 Access `cqlsh` via `ssh` as the `watsonx` user with the command:
 
-```
+```bash
 ./hcd-1.2.3/bin/hcd cqlsh 172.17.0.1 -u cassandra -p cassandra
 ```
 
