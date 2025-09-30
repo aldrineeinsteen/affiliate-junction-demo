@@ -929,6 +929,349 @@ def services_dashboard(request: Request):
             })
 
 
+# --- Fraud Detection endpoints ---
+@app.get("/fraud", response_class=HTMLResponse)
+def fraud_dashboard(request: Request):
+    """Fraud detection dashboard page"""
+    # Check authentication and redirect if necessary
+    redirect_response = check_auth_or_redirect(request)
+    if redirect_response:
+        return redirect_response
+    
+    return templates.TemplateResponse("fraud_dashboard.html", {"request": request})
+
+
+@app.get("/api/fraud/stage1")
+def get_fraud_stage1_data(request: Request, current_user: str = Depends(require_auth)):
+    """API endpoint for fraud detection stage 1 - High conversion cookies"""
+    try:
+        # Stage 1 query for cookies with high conversions in the last minute
+        stage1_query = """
+        SELECT cookie_id, count(*) as num
+        FROM hcd.affiliate_junction.conversions_by_minute 
+        WHERE bucket_date = date_add('minute', -1, date_trunc('minute', now()))
+          AND bucket IN (0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+        GROUP BY cookie_id
+        ORDER BY num DESC
+        LIMIT 100
+        """
+        
+        # Execute the query using presto_operations
+        from .presto_operations import execute_query
+        stage1_results = execute_query(
+            stage1_query, 
+            query_description="Fraud Stage 1: High-conversion cookies last minute"
+        )
+        
+        # Transform results into expected format
+        stage1_data = []
+        for row in stage1_results:
+            # Debug: Log the row structure
+            logger.info(f"Stage 1 row type: {type(row)}, content: {row}")
+            
+            # Handle both Row objects and tuples/lists
+            if hasattr(row, '_asdict'):
+                # Named tuple or Row object
+                row_dict = row._asdict()
+                stage1_data.append({
+                    'cookie_id': row_dict.get('cookie_id'),
+                    'conversion_count': row_dict.get('num')
+                })
+            elif isinstance(row, (list, tuple)) and len(row) >= 2:
+                # List or tuple format
+                stage1_data.append({
+                    'cookie_id': row[0],
+                    'conversion_count': row[1]
+                })
+            else:
+                # Try to access as object attributes
+                stage1_data.append({
+                    'cookie_id': getattr(row, 'cookie_id', None),
+                    'conversion_count': getattr(row, 'num', None)
+                })
+        
+        # Get query metrics
+        with presto_wrapper.request_context():
+            query_metrics = presto_wrapper.get_request_queries()
+        
+        return {
+            "stage1_data": stage1_data,
+            "total_cookies": len(stage1_data),
+            "timestamp": datetime.now().isoformat(),
+            "query_metrics": query_metrics
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in fraud stage 1: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to execute fraud stage 1 analysis: {str(e)}"}
+        )
+
+
+@app.post("/api/fraud/stage2")
+def get_fraud_stage2_data_optimized(request: Request, stage2_request: dict, current_user: str = Depends(require_auth)):
+    """API endpoint for fraud detection stage 2 - Optimized with targeted cookie_ids"""
+    try:
+        # Extract optimization parameters from request
+        cookie_ids = stage2_request.get('cookie_ids', [])
+        min_conversions = stage2_request.get('min_conversions', 5)
+        
+        logger.info(f"Stage 2 optimization: Targeting {len(cookie_ids)} cookies with {min_conversions}+ conversions")
+        
+        # Create optimized stage 2 query with targeted cookie_ids and conversion filter
+        if cookie_ids:
+            # Format cookie_ids for SQL IN clause
+            cookie_ids_str = "', '".join(cookie_ids)
+            cassandra_filter = f"AND cbm.cookie_id IN ('{cookie_ids_str}')"
+            iceberg_filter = f"AND ci.cookie_id IN ('{cookie_ids_str}')"
+        else:
+            cassandra_filter = ""
+            iceberg_filter = ""
+        
+        stage2_query = f"""
+        WITH last_minute AS (
+          -- Top cookies in the previous full minute (Cassandra) with conversion filter
+          SELECT
+              cbm.cookie_id,
+              COUNT(*) AS num
+          FROM hcd.affiliate_junction.conversions_by_minute cbm
+          WHERE cbm.bucket_date = date_add('minute', -1, date_trunc('minute', now()))
+            AND cbm.bucket IN (0,1,2,3,4,5,6,7,8,9)
+            {cassandra_filter}
+          GROUP BY cbm.cookie_id
+          HAVING COUNT(*) >= {min_conversions}
+          ORDER BY num DESC
+          LIMIT 100
+        ),
+        identified_90m AS (
+          -- 90-minute window (Iceberg) with targeted cookie_ids
+          SELECT
+              ci.cookie_id,
+              ci.publishers_id
+          FROM iceberg_data.affiliate_junction.conversions_identified ci
+          WHERE ci.conversion_timestamp >= date_add('minute', -90, date_trunc('minute', now()))
+            AND ci.conversion_timestamp <  date_trunc('minute', now())
+            {iceberg_filter}
+        )
+        SELECT
+            lm.cookie_id,
+            lm.num                                                       AS total_conversions_last_minute,
+            COUNT(DISTINCT i90.publishers_id)                            AS unique_publishers_last_90m,
+            slice(
+              array_sort(array_distinct(array_agg(i90.publishers_id))),
+              1, 10
+            )                                                           AS sample_publishers_90m
+        FROM last_minute lm
+        LEFT JOIN identified_90m i90
+          ON lm.cookie_id = i90.cookie_id
+        GROUP BY lm.cookie_id, lm.num
+        ORDER BY total_conversions_last_minute DESC, unique_publishers_last_90m DESC
+        """
+        
+        # Execute the optimized query
+        from .presto_operations import execute_query
+        stage2_results = execute_query(
+            stage2_query, 
+            query_description=f"Fraud Stage 2: Optimized publisher analysis ({len(cookie_ids)} targeted cookies, {min_conversions}+ conversions, 90min window)"
+        )
+        
+        # Transform results into expected format
+        fraud_data = []
+        for row in stage2_results:
+            # Debug: Log the row structure
+            logger.debug(f"Stage 2 row type: {type(row)}, content: {row}")
+            
+            # Handle both Row objects and tuples/lists
+            if hasattr(row, '_asdict'):
+                # Named tuple or Row object
+                row_dict = row._asdict()
+                fraud_data.append({
+                    'cookie_id': row_dict.get('cookie_id'),
+                    'total_conversions_last_minute': row_dict.get('total_conversions_last_minute'),
+                    'unique_publishers_last_90m': row_dict.get('unique_publishers_last_90m', 0),
+                    'sample_publishers_90m': row_dict.get('sample_publishers_90m', [])
+                })
+            elif isinstance(row, (list, tuple)) and len(row) >= 4:
+                # List or tuple format
+                fraud_data.append({
+                    'cookie_id': row[0],
+                    'total_conversions_last_minute': row[1],
+                    'unique_publishers_last_90m': row[2] if row[2] is not None else 0,
+                    'sample_publishers_90m': row[3] if row[3] is not None else []
+                })
+            else:
+                # Try to access as object attributes
+                fraud_data.append({
+                    'cookie_id': getattr(row, 'cookie_id', None),
+                    'total_conversions_last_minute': getattr(row, 'total_conversions_last_minute', None),
+                    'unique_publishers_last_90m': getattr(row, 'unique_publishers_last_90m', 0),
+                    'sample_publishers_90m': getattr(row, 'sample_publishers_90m', [])
+                })
+        
+        # Calculate summary statistics based on risk levels
+        summary = {'high': 0, 'medium': 0, 'low': 0, 'clean': 0}
+        for fraud in fraud_data:
+            conversions = fraud['total_conversions_last_minute'] or 0
+            publishers = fraud['unique_publishers_last_90m'] or 0
+            
+            # Calculate risk level using same logic as JavaScript
+            if conversions >= 20 and publishers >= 10:
+                summary['high'] += 1
+            elif conversions >= 10 and publishers >= 5:
+                summary['medium'] += 1
+            elif conversions >= 5 or publishers >= 3:
+                summary['low'] += 1
+            else:
+                summary['clean'] += 1
+        
+        # Get query metrics
+        with presto_wrapper.request_context():
+            query_metrics = presto_wrapper.get_request_queries()
+        
+        logger.info(f"Stage 2 optimization: Processed {len(fraud_data)} records with {min_conversions}+ conversions filter")
+        
+        return {
+            "fraud_data": fraud_data,
+            "summary": summary,
+            "last_updated": datetime.now().isoformat(),
+            "analysis_window": f"90 minutes publisher analysis (optimized: {len(cookie_ids)} targeted cookies, {min_conversions}+ conversions)",
+            "total_analyzed": len(fraud_data),
+            "query_metrics": query_metrics
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in optimized fraud stage 2: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to execute optimized fraud stage 2 analysis: {str(e)}"}
+        )
+
+
+@app.get("/api/fraud/stage2")
+def get_fraud_stage2_data(request: Request, current_user: str = Depends(require_auth)):
+    """API endpoint for fraud detection stage 2 - Enhanced publisher analysis (fallback)"""
+    try:
+        # Stage 2 query with CTE for comprehensive analysis (original version for fallback)
+        stage2_query = """
+        WITH last_minute AS (
+          -- Top cookies in the previous full minute (Cassandra)
+          SELECT
+              cbm.cookie_id,
+              COUNT(*) AS num
+          FROM hcd.affiliate_junction.conversions_by_minute cbm
+          WHERE cbm.bucket_date = date_add('minute', -1, date_trunc('minute', now()))
+            AND cbm.bucket IN (0,1,2,3,4,5,6,7,8,9)
+          GROUP BY cbm.cookie_id
+          ORDER BY num DESC
+          LIMIT 100
+        ),
+        identified_90m AS (
+          -- 90-minute window (Iceberg)
+          SELECT
+              ci.cookie_id,
+              ci.publishers_id
+          FROM iceberg_data.affiliate_junction.conversions_identified ci
+          WHERE ci.conversion_timestamp >= date_add('minute', -90, date_trunc('minute', now()))
+            AND ci.conversion_timestamp <  date_trunc('minute', now())
+        )
+        SELECT
+            lm.cookie_id,
+            lm.num                                                       AS total_conversions_last_minute,
+            COUNT(DISTINCT i90.publishers_id)                            AS unique_publishers_last_90m,
+            slice(
+              array_sort(array_distinct(array_agg(i90.publishers_id))),
+              1, 10
+            )                                                           AS sample_publishers_90m
+        FROM last_minute lm
+        LEFT JOIN identified_90m i90
+          ON lm.cookie_id = i90.cookie_id
+        GROUP BY lm.cookie_id, lm.num
+        ORDER BY total_conversions_last_minute DESC, unique_publishers_last_90m DESC
+        """
+        
+        # Execute the query using presto_operations
+        from .presto_operations import execute_query
+        stage2_results = execute_query(
+            stage2_query, 
+            query_description="Fraud Stage 2: Enhanced publisher analysis (90min window, fallback mode)"
+        )
+        # Transform results into expected format
+        fraud_data = []
+        for row in stage2_results:
+            # Debug: Log the row structure
+            logger.debug(f"Stage 2 fallback row type: {type(row)}, content: {row}")
+            
+            # Handle both Row objects and tuples/lists
+            if hasattr(row, '_asdict'):
+                # Named tuple or Row object
+                row_dict = row._asdict()
+                fraud_data.append({
+                    'cookie_id': row_dict.get('cookie_id'),
+                    'total_conversions_last_minute': row_dict.get('total_conversions_last_minute'),
+                    'unique_publishers_last_90m': row_dict.get('unique_publishers_last_90m', 0),
+                    'sample_publishers_90m': row_dict.get('sample_publishers_90m', [])
+                })
+            elif isinstance(row, (list, tuple)) and len(row) >= 4:
+                # List or tuple format
+                fraud_data.append({
+                    'cookie_id': row[0],
+                    'total_conversions_last_minute': row[1],
+                    'unique_publishers_last_90m': row[2] if row[2] is not None else 0,
+                    'sample_publishers_90m': row[3] if row[3] is not None else []
+                })
+            else:
+                # Try to access as object attributes
+                fraud_data.append({
+                    'cookie_id': getattr(row, 'cookie_id', None),
+                    'total_conversions_last_minute': getattr(row, 'total_conversions_last_minute', None),
+                    'unique_publishers_last_90m': getattr(row, 'unique_publishers_last_90m', 0),
+                    'sample_publishers_90m': getattr(row, 'sample_publishers_90m', [])
+                })
+        
+        # Calculate summary statistics based on risk levels
+        summary = {'high': 0, 'medium': 0, 'low': 0, 'clean': 0}
+        for fraud in fraud_data:
+            conversions = fraud['total_conversions_last_minute'] or 0
+            publishers = fraud['unique_publishers_last_90m'] or 0
+            
+            # Calculate risk level using same logic as JavaScript
+            if conversions >= 20 and publishers >= 10:
+                summary['high'] += 1
+            elif conversions >= 10 and publishers >= 5:
+                summary['medium'] += 1
+            elif conversions >= 5 or publishers >= 3:
+                summary['low'] += 1
+            else:
+                summary['clean'] += 1
+        
+        # Get query metrics
+        with presto_wrapper.request_context():
+            query_metrics = presto_wrapper.get_request_queries()
+        
+        return {
+            "fraud_data": fraud_data,
+            "summary": summary,
+            "last_updated": datetime.now().isoformat(),
+            "analysis_window": "90 minutes publisher analysis + 1 minute conversion window (fallback mode)",
+            "total_analyzed": len(fraud_data),
+            "query_metrics": query_metrics
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in fraud stage 2 fallback: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to execute fraud stage 2 analysis: {str(e)}"}
+        )
+
+
+@app.get("/api/fraud")
+def get_fraud_data(request: Request, current_user: str = Depends(require_auth)):
+    """API endpoint for fraud detection data (legacy - redirects to stage 2)"""
+    return get_fraud_stage2_data(request, current_user)
+
+
 # --- UI endpoint ---
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):

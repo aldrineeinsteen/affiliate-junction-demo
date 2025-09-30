@@ -494,7 +494,7 @@ async function loadConversionTimeline(cookieId) {
       return;
     }
     
-    currentProgress += (100 / 300); // 300 increments over 30 seconds (100ms intervals)
+    currentProgress += (100 / 600); // 600 increments over 30 seconds
     
     if (currentProgress >= 100) {
       currentProgress = 100;

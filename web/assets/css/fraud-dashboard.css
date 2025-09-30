@@ -1,0 +1,376 @@
+/* Fraud Dashboard Specific Styles */
+
+/* Stage 1 Loading Indicators */
+.stage1-only {
+  background-color: rgba(255, 243, 205, 0.3);
+}
+
+.stage1-only:hover {
+  background-color: rgba(255, 243, 205, 0.5);
+}
+
+.conversion-metrics {
+  font-size: 0.9rem;
+}
+
+.conversion-metrics > div {
+  margin-bottom: 0.25rem;
+}
+
+.publisher-sample {
+  color: #6c757d;
+  font-style: italic;
+}
+
+.spinner-border-sm {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-width: 0.1rem;
+}
+#loading {
+  padding: 3rem 1rem;
+}
+
+#progress-bar {
+  transition: width 0.1s ease-in-out;
+}
+
+#progress-percentage {
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+}
+
+/* Summary Cards */
+.card {
+  transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Risk Level Styling */
+.risk-badge {
+  font-weight: 600;
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.375rem;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.5px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.risk-high {
+  background-color: #dc3545;
+  color: white;
+}
+
+.risk-medium {
+  background-color: #ffc107;
+  color: #212529;
+}
+
+.risk-low {
+  background-color: #17a2b8;
+  color: white;
+}
+
+.risk-clean {
+  background-color: #28a745;
+  color: white;
+}
+
+/* Table Enhancements */
+#fraud-table {
+  font-size: 0.9rem;
+}
+
+#fraud-table th {
+  border-top: none;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.5px;
+  padding: 1rem 0.75rem;
+}
+
+#fraud-table td {
+  padding: 0.75rem;
+  vertical-align: middle;
+}
+
+.table-hover tbody tr:hover {
+  background-color: rgba(0, 123, 255, 0.05);
+}
+
+/* Cookie ID styling */
+.cookie-id {
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  color: #6c757d;
+  background-color: #f8f9fa;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.25rem;
+  border: 1px solid #dee2e6;
+}
+
+/* Risk Score styling */
+.risk-score {
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+
+.risk-score.high {
+  color: #dc3545;
+}
+
+.risk-score.medium {
+  color: #ffc107;
+}
+
+.risk-score.low {
+  color: #17a2b8;
+}
+
+.risk-score.clean {
+  color: #28a745;
+}
+
+/* Conversion Metrics styling */
+.conversion-metrics {
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.conversion-metrics > div {
+  margin-bottom: 0.3rem;
+}
+
+.conversion-metrics strong {
+  color: #495057;
+  font-weight: 600;
+}
+
+.publisher-sample {
+  margin-top: 0.4rem;
+}
+
+.publisher-sample small {
+  color: #6c757d;
+  font-style: italic;
+  font-size: 0.75rem;
+}
+
+/* Suspicious Patterns List */
+.pattern-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pattern-list li {
+  font-size: 0.8rem;
+  color: #6c757d;
+  margin-bottom: 0.2rem;
+}
+
+.pattern-list li:before {
+  content: "• ";
+  color: #dc3545;
+  font-weight: bold;
+  margin-right: 0.3rem;
+}
+
+.pattern-list li.normal:before {
+  color: #28a745;
+}
+
+/* Table Controls */
+.table-controls {
+  background-color: #f8f9fa;
+  padding: 1rem;
+  border-radius: 0.375rem;
+  margin-bottom: 1rem;
+  border: 1px solid #dee2e6;
+}
+
+/* Action Buttons */
+.action-btn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  border-radius: 0.25rem;
+  margin-right: 0.25rem;
+}
+
+.btn-details {
+  background-color: #6c757d;
+  border-color: #6c757d;
+  color: white;
+}
+
+.btn-details:hover {
+  background-color: #5a6268;
+  border-color: #545b62;
+  color: white;
+}
+
+.btn-block {
+  background-color: #dc3545;
+  border-color: #dc3545;
+  color: white;
+}
+
+.btn-block:hover {
+  background-color: #c82333;
+  border-color: #bd2130;
+  color: white;
+}
+
+/* No Results State */
+#no-results {
+  color: #6c757d;
+}
+
+#no-results .bi {
+  opacity: 0.5;
+}
+
+/* Modal Enhancements */
+.modal-header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.modal-title {
+  color: #495057;
+  font-weight: 600;
+}
+
+/* Fraud Details in Modal */
+.fraud-detail-section {
+  margin-bottom: 1.5rem;
+}
+
+.fraud-detail-section h6 {
+  color: #495057;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.detail-table {
+  font-size: 0.9rem;
+}
+
+.detail-table th {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  padding: 0.5rem;
+  width: 30%;
+  font-weight: 600;
+}
+
+.detail-table td {
+  border: 1px solid #dee2e6;
+  padding: 0.5rem;
+}
+
+/* Export Button */
+#export-btn {
+  transition: all 0.2s ease-in-out;
+}
+
+#export-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  #fraud-table {
+    font-size: 0.8rem;
+  }
+  
+  #fraud-table th,
+  #fraud-table td {
+    padding: 0.5rem 0.3rem;
+  }
+  
+  .pattern-list {
+    font-size: 0.75rem;
+  }
+  
+  .action-btn {
+    padding: 0.2rem 0.4rem;
+    font-size: 0.7rem;
+  }
+}
+
+/* Animation for table rows appearing */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.table-row-enter {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+/* Highlight animation for filtered results */
+.highlight-row {
+  background-color: rgba(255, 193, 7, 0.2) !important;
+  transition: background-color 0.5s ease-out;
+}
+
+/* Loading skeleton for table rows */
+.skeleton-row {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Stage 1 Loading Indicators */
+.stage1-only {
+  background-color: rgba(255, 243, 205, 0.3);
+}
+
+.stage1-only:hover {
+  background-color: rgba(255, 243, 205, 0.5);
+}
+
+.conversion-metrics {
+  font-size: 0.9rem;
+}
+
+.conversion-metrics > div {
+  margin-bottom: 0.25rem;
+}
+
+.publisher-sample {
+  color: #6c757d;
+  font-style: italic;
+}
+
+.spinner-border-sm {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-width: 0.1rem;
+}

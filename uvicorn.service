@@ -1,0 +1,16 @@
+[Unit]
+Description=Uvicorn FastAPI web server for affiliate junction demo
+After=network.target
+
+
+[Service]
+Type=simple
+Environment=PATH=/home/watsonx/affiliate-junction-demo/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=VIRTUAL_ENV=/home/watsonx/affiliate-junction-demo/.venv
+WorkingDirectory=/home/watsonx/affiliate-junction-demo
+ExecStart=/home/watsonx/affiliate-junction-demo/.venv/bin/uvicorn web.main:app --reload --host 0.0.0.0 --port 10000
+Restart=on-failure
+User=watsonx
+
+[Install]
+WantedBy=multi-user.target

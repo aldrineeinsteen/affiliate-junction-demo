@@ -204,10 +204,7 @@ class AffiliateJunctionInsights:
         logger.info(f"Starting {entity_type[:-1]} conversions processing for minute: {target_minute}")
         processing_start_time = time.time()
         
-        try:
-            start_time = target_minute
-            end_time = target_minute + timedelta(minutes=1)
-            
+        try:           
             # Define the ID column name based on entity type (for Presto/Iceberg queries)
             id_column = f"{entity_type[:-1]}s_id"  # advertisers -> advertisers_id
             
@@ -217,8 +214,7 @@ class AffiliateJunctionInsights:
                 {id_column},
                 COUNT(*) as total_conversions
             FROM iceberg_data.affiliate_junction.conversion_tracking
-            WHERE timestamp >= TIMESTAMP '{start_time.strftime('%Y-%m-%d %H:%M:%S')}' 
-                AND timestamp < TIMESTAMP '{end_time.strftime('%Y-%m-%d %H:%M:%S')}'
+            WHERE timestamp = TIMESTAMP '{target_minute.strftime('%Y-%m-%d %H:%M:%S')}' 
                 AND {id_column} IS NOT NULL
             GROUP BY {id_column}
             """
