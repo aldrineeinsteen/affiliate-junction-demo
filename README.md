@@ -68,10 +68,6 @@ Click the query panel toggle button (typically located on the right side of any 
 <img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/2b2a3db4-13ab-4d7b-8889-0cd966edaa77">
 
 
-
-
-*[Screenshot placeholder]*
-
 #### Publisher Dashboard
 **Route:** `/publisher/{publisher_id}`
 
@@ -81,9 +77,10 @@ Dedicated view for content publishers showing their performance metrics includin
 - Revenue trends and publisher-specific KPIs
 - Cross-advertiser performance comparisons
 
-Demonstrates federated queries joining real-time operational data with analytical datasets to provide publishers actionable insights into their content monetization.
+Demonstrates web-scale access to pre-processed data that has been staged inside HCD
 
-*[Screenshot placeholder]*
+<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/ebceb4b5-db9d-401a-aa66-c8cd561f944e">
+
 
 #### Advertiser Dashboard  
 **Route:** `/advertiser/{advertiser_id}`
@@ -96,7 +93,16 @@ Campaign management interface for advertisers featuring:
 
 Showcases dual-write pattern benefits by combining immediate feedback from HCD with deep analytical views from the data lake.
 
-*[Screenshot placeholder]*
+<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/73681f5f-8d5f-47b7-bb02-c137a4da8b9d">
+
+Dive into the historical journey of any specific conversion.  We by showing the list of recent coversions (via HCD):
+
+<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/728b84dc-4d1a-41bf-89b6-c750039679ec">
+
+Expanding any of the accordion elements generates a Presto query that shows the entire timeline from first impression to conversion:
+
+<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/47312bec-270e-4c34-a1bb-9121e0d85e80">
+
 
 #### Fraud Detection Dashboard
 **Route:** `/fraud`
@@ -109,7 +115,15 @@ Advanced analytics dashboard for identifying suspicious affiliate activity:
 
 Demonstrates complex analytical capabilities enabled by watsonx.data's federated query engine across multiple data sources.
 
-*[Screenshot placeholder]*
+This page loads in two stages.  The table is first generated with data from a fast Presto query against the HCD datasource:
+
+<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/837f79de-7ed7-45bf-9549-e1f66fa13087">
+
+The page is then refined by looking at all historical information using a federated HCD/Iceberg query via Presto:
+
+<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/457a86c0-a47a-40b4-b8eb-045b69a92efa">
+
+
 
 #### Services Administration
 **Route:** `/services`
@@ -120,10 +134,13 @@ System administration interface for monitoring the data pipeline:
 - System performance dashboards
 - Service restart and configuration management
 
-Provides visibility into the backend ETL processes and dual-write architecture maintenance.
+Provides visibility into the backend ETL processes and dual-write architecture maintenance.  There are five such services.  The charts show useful information detailing the data volume and associated timing:
 
-*[Screenshot placeholder]*
+<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/e63bf795-3bd0-4870-9afd-220db0cb73a3">
 
+All queries associated with the services themselves are also captured.  These queries are visible from within the query discovery slider:
+
+<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/be775619-ed1c-4655-96e5-ea46d3c8bdc7">
 
 
 
@@ -194,6 +211,20 @@ ORDER BY predicted_conversions DESC;
 ```
 
 
+## Other Interfaces
+
+### Presto Console
+
+The open source Presto console is another good window into the activity occuring within wx.d.  Since all ETL activities occurs every minute, you will typically see active queries and statistics showing usage:
+
+<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/0756c8e5-2215-4219-9b97-09143cb483dd">
+
+The console also includes a SQL interface to enter your own queries.  This may be an easier web-based location to explore queries that the wx.d built-in notebook feature.
+
+<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/f326419e-60a7-4faa-9c16-47e810f2849e">
+
+
+
 ## Install
 
 ### Compatibility 
@@ -209,7 +240,6 @@ https://techzone.ibm.com/collection/ibm-watsonxdata-developer-base-image--hcd-ca
 ### Installation
 
 Once Presto and HCD are available, execute `setup.sh` to install other pre-reqs and configure services.
-
 
 
 ## Troubleshooting
