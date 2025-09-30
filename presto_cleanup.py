@@ -225,7 +225,7 @@ class AffiliateJunctionDataCleanup:
                         self.presto_conn.clear_query_metrics()
                     
                     logger.info(f"Cleanup cycle completed in {execution_time:.2f} seconds. Sleeping for 300 seconds...")
-                    time.sleep(300)  # Sleep for 300 seconds (5 minutes)
+                    time.sleep(1800)  # Sleep for 1800 seconds (30 minutes)
                     
                 except KeyboardInterrupt:
                     logger.info("Received interrupt signal, shutting down...")
