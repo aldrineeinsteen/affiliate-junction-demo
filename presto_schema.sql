@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS iceberg_data.affiliate_junction.impression_tracking (
     impressions integer
 ) WITH (
     format = 'PARQUET',
-    partitioning = ARRAY['hour(timestamp)', 'bucket(publishers_id, 10)']
+    partitioning = ARRAY['hour(timestamp)', 'bucket(publishers_id, 5)']
 );
 
 -- Create conversion tracking table
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS iceberg_data.affiliate_junction.conversion_tracking (
     cookie_id varchar
 ) WITH (
     format = 'PARQUET',
-    partitioning = ARRAY['hour(timestamp)', 'bucket(advertisers_id, 10)']
+    partitioning = ARRAY['hour(timestamp)', 'bucket(advertisers_id, 5)']
 );
 
 -- Create conversions identification table
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS iceberg_data.affiliate_junction.conversions_identifie
     created_at timestamp
 ) WITH (
     format = 'PARQUET',
-    partitioning = ARRAY['hour(conversion_timestamp)', 'bucket(publishers_id, 10)']
+    partitioning = ARRAY['hour(conversion_timestamp)', 'bucket(publishers_id, 5)']
 );
 
 
