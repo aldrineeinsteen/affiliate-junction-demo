@@ -142,6 +142,10 @@ All queries associated with the services themselves are also captured.  These qu
 
 <img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/be775619-ed1c-4655-96e5-ea46d3c8bdc7">
 
+Some services have tunables that can be dynamically changed from their defaults from within this screen.  Changes take affect within a minute:
+
+<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/db6fe4df-eb20-4885-89d4-606915c39bf9">
+
 
 
 ##  wx.d Interface
