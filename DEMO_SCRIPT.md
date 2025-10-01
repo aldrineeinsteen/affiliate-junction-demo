@@ -66,21 +66,51 @@ Notebook interface with persistant notebooks, and access to data sources in the 
 
 ## Affiliate Junction Web UI
 
-Reiterate there are multiple personas served by thei demo dashboard.
+Navigate to the Affiliate Junction landing page.  Reiterate there are multiple personas served by the demo dashboard.
+
+<img width="1414" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/6d946973-27a4-45d0-93b0-9543c428e812">
+
 
 ### Query slider
 
 The actual queries used to generate the displayed content are always available from each page.
 
-* Expand the query slider
-* Expand one of the queries
-  
+Expand the query slider
+<img width="1414" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/a660fce4-33ba-4fa1-8678-6d4c99d4e76c">
+
+Expand one of the queries
+<img width="1414" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/67db4aca-0bd4-42fd-a846-edad73a9aada">
+
 
 ### Publisher
 
-Select one of the publishers from 
+Select one of the publishers from the drop down list in the sidebar.
+<img width="1414" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/51c00bcc-bd35-43c5-8856-1ebf03b6e6bd">
+
+Note that the page loads quickly.  The content is a mix of static metadata and timeseries data.  Both of these are served from an HCD query
+(explore the query slider if curious).  This data is pre-computed by Spark and hits Presto historical data.  Since the queries are served from
+HCD they are performance and support web-scale workloads.
+<img width="1414" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/3b819066-3837-4fa6-83a2-d22f80eef718">
+
 
 ### Advertiser
+
+Select one of the advertisers from the drop down list in the sidebar.
+<img width="1414" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/6fce8de2-b09a-4097-a5d4-d2379ff8f8a3">
+
+Make the same notes about timeseries data that is pre-computed and displayed quickly.
+<img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/9bd9aec1-3e40-4fb2-9142-25fbb4d1f6e3">
+
+
+<img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/d462c1f6-766e-4ba6-885e-ea6cc2d66135">
+
+
+<img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/da84941f-663b-45e6-8eae-e44c2a0566d0">
+
+Once fully loaded the entire timeline of interactions between this cookie and different publishers is displayed.  You should click on one of the
+cookies with "FRAUD" in the name since it will have a longer timeline.
+<img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/90545cf6-0aff-4a94-b83f-6fe880f80497">
+
 
 
 ### Admin
