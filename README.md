@@ -255,6 +255,9 @@ If services are not behaving as expected (e.g. data not flowing, slow performanc
 On boot the server will truncate all tables (thus improving performance) and will restart all services
 in the proper order.
 
+Note -- issuing shutdown / reboot commands from within the ssh console often causes the server to land in
+a "stuck" state.  Make sure the host actually reboots and powers off from within the ITZ console itself.
+
 
 ### Services
 
