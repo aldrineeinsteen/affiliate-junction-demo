@@ -198,5 +198,11 @@ Here is a snippet of that code:
 
 ### Presto WUI
 
+You may want to show the Presto WUI in addition to the wx.d interface.  It shows real-time visibility into how the engine is being used with
+charts and a live query viewer.
+<img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/7cba7af9-236d-4688-bb7e-00878ee0e9ee">
 
+If you will be demonstrating ad-hoc queries, then using the SQL Client interface may be preferable to the wx.d notebook interface for some
+scenarios.  There is less chrome and distration around the text field allowing for easier focus on the query itself.
+<img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/c302fc64-ce62-4028-813b-ccc1d2138e20">
 
