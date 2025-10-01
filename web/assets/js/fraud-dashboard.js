@@ -98,6 +98,11 @@ async function loadFraudData() {
             // Enhance the existing table with stage 2 data
             enhanceFraudDataWithStage2(stage2Result);
           }
+          
+          // Hide the progress bar after completion
+          setTimeout(() => {
+            hideProgressBar();
+          }, 2000);
         }, 500);
         return;
       }
@@ -151,6 +156,11 @@ async function loadFraudData() {
         setTimeout(() => {
           updateProgress(100, "Analysis complete - Enhanced view ready");
           enhanceFraudDataWithStage2(stage2Result);
+          
+          // Hide the progress bar after completion
+          setTimeout(() => {
+            hideProgressBar();
+          }, 2000);
         }, 500);
       }
       
@@ -170,6 +180,11 @@ async function loadFraudData() {
     
     updateProgress(100, "Stage 1 complete - Stage 2 enhancement failed");
     console.warn("Stage 2 enhancement failed, showing Stage 1 data only:", error.message);
+    
+    // Hide the progress bar after failure
+    setTimeout(() => {
+      hideProgressBar();
+    }, 2000);
   }
 }
 
@@ -290,6 +305,27 @@ function updateSummaryCardsFromStage1(basicFraudData) {
   updateElement('medium-risk-count', counts.medium);
   updateElement('low-risk-count', counts.low);
   updateElement('clean-count', counts.clean);
+}
+
+/**
+ * Hide the progress bar after analysis completion
+ */
+function hideProgressBar() {
+  // Find the global progress bar container by searching for the element with the specific structure
+  const globalProgressBar = document.getElementById('global-progress-bar');
+  if (globalProgressBar) {
+    // Navigate up to find the card container
+    const cardContainer = globalProgressBar.closest('.card');
+    if (cardContainer) {
+      cardContainer.style.transition = 'opacity 0.5s ease-out, transform 0.5s ease-out';
+      cardContainer.style.opacity = '0';
+      cardContainer.style.transform = 'translateY(-10px)';
+      
+      setTimeout(() => {
+        cardContainer.style.display = 'none';
+      }, 500);
+    }
+  }
 }
 
 /**
