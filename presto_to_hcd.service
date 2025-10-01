@@ -1,6 +1,6 @@
 [Unit]
 Description=Use PySpark to move data from Presto Iceberg to HCD
-After=After=hcd_to_presto.service
+After=hcd_to_presto.service
 
 
 [Service]
