@@ -1,6 +1,6 @@
 [Unit]
 Description=Presto async queries to gain insights into data
-After=network.target
+After=hcd_to_presto.service
 
 
 [Service]

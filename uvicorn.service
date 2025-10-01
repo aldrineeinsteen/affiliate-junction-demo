@@ -1,6 +1,6 @@
 [Unit]
 Description=Uvicorn FastAPI web server for affiliate junction demo
-After=network.target
+After=generate_traffic.service
 
 
 [Service]
