@@ -1,5 +1,5 @@
 [Unit]
-Description=Generate Traffic
+Description=Truncate all HCD and Presto tables for a fresh start
 After=hcd.service
 
 
