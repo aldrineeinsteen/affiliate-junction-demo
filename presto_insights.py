@@ -123,7 +123,7 @@ class AffiliateJunctionInsights:
                 conversion_timestamp,
                 impression_timestamp,
                 CAST(date_diff('second', impression_timestamp, conversion_timestamp) AS BIGINT) as time_to_conversion_seconds,
-                CURRENT_TIMESTAMP as created_at
+                CAST(CURRENT_TIMESTAMP AT TIME ZONE 'UTC' AS TIMESTAMP) as created_at
             FROM conversions_with_impressions
             WHERE impression_rank = 1
             """
@@ -159,7 +159,12 @@ class AffiliateJunctionInsights:
                     values_list = []
                     for row in batch:
                         # row indices: advertisers_id, publishers_id, cookie_id, conversion_timestamp, impression_timestamp, time_to_conversion_seconds, created_at
-                        values_list.append(f"('{row[0]}', '{row[1]}', '{row[2]}', TIMESTAMP '{row[3]}', TIMESTAMP '{row[4]}', {row[5]}, TIMESTAMP '{row[6]}')")
+                        # Convert timestamp values to proper format without timezone
+                        conversion_ts = str(row[3]) if isinstance(row[3], str) else row[3].strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                        impression_ts = str(row[4]) if isinstance(row[4], str) else row[4].strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                        created_at_ts = str(row[6]) if isinstance(row[6], str) else row[6].strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+                        
+                        values_list.append(f"('{row[0]}', '{row[1]}', '{row[2]}', TIMESTAMP '{conversion_ts}', TIMESTAMP '{impression_ts}', {row[5]}, TIMESTAMP '{created_at_ts}')")
                     
                     values_clause = ", ".join(values_list)
                     batch_insert_query = f"""

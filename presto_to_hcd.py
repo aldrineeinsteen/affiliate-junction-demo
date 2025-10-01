@@ -48,7 +48,7 @@ class AffiliateJunctionInsights:
         }
         
     def connect_to_presto(self):
-        """Establish connection to Presto - reusing configuration from hcd_to_presto.py"""
+        """Establish connection to Presto"""
         try:
             presto_conn = PrestoConnection()
             self.presto_connection = presto_conn.connect()
@@ -61,7 +61,7 @@ class AffiliateJunctionInsights:
             sys.exit(1)
     
     def connect_to_cassandra(self):
-        """Establish connection to Cassandra cluster - reusing from hcd_to_presto.py"""
+        """Establish connection to Cassandra cluster"""
         try:
             self.cassandra_connection = CassandraConnection()
             self.cassandra_session = self.cassandra_connection.connect()
