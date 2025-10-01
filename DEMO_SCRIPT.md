@@ -39,6 +39,11 @@ This demo makes use of the watsonx.data suite, specifically:
 This demo makes use of the wx.d Developer Edition.  This is an all-in-one install that runs in containers on a single host.  There are some limitations associated
 with wx.d Developer Edition.  This edition is available for customers to test without any licensing requirements.
 
+* **Login**.  Note support for SSO and RBAC
+* **Infrastructure Manager**.  Highlight HCD and Iceberg/minio have been deployed and both are associated with the Presto Engine.  Note that Spark is another available engine, but for the purposes of this demo we're running it on-demand directly within Pythoni
+* **Data Manager**.  Expand HCD and Iceberg tabs, showing tables within the affiliate_junction catalog
+* **SQL Query**.  Notebook interface with persistant notebooks, and access to data sources in the side pane to quicklly build federated queries.  Execute [one of the example queries](https://github.ibm.com/Data-Labs/affiliate-junction-demo?tab=readme-ov-file#single-datasource-operations) from the README.md file.  Note that queries can span multiple data sources
+
 
 
 ## Affiliate Junction Web UI
