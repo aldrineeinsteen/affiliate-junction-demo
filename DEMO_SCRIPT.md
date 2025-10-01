@@ -101,16 +101,17 @@ Select one of the advertisers from the drop down list in the sidebar.
 Make the same notes about timeseries data that is pre-computed and displayed quickly.
 <img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/9bd9aec1-3e40-4fb2-9142-25fbb4d1f6e3">
 
-
+Scroll down to reveal the "Recent Conversions" element.  This list is a surface-level Presto query showing the conversions associated with this
+advertiser.
 <img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/d462c1f6-766e-4ba6-885e-ea6cc2d66135">
 
-
+Expand one of the cookie tabs.  Note the loading progress bar.  This is a more expensive analytical query suitable for reports or other
+async workloads.
 <img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/da84941f-663b-45e6-8eae-e44c2a0566d0">
 
 Once fully loaded the entire timeline of interactions between this cookie and different publishers is displayed.  You should click on one of the
 cookies with "FRAUD" in the name since it will have a longer timeline.
 <img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/90545cf6-0aff-4a94-b83f-6fe880f80497">
-
 
 
 ### Admin
