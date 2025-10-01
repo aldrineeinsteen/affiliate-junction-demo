@@ -116,13 +116,84 @@ cookies with "FRAUD" in the name since it will have a longer timeline.
 
 ### Admin
 
+The Admin persons may be interested in fraudulent conversions.  
+
+Click the "Fraud Reporting" link from the sidebar.
+
+Note that this page loads across two different stages.  The first stage is a hits only the recent data stored within HCD and it returns quickly.
+<img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/144f99e5-9c8e-42ce-89ff-9789b1ff5eb0">
+
+The second stage of this query issues a more expensive federated query from Presto that hits both the HCD and Iceberg data sources.  The results
+of this query are used to refine the table and give a full 360 degree view for the admin.
+<img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/aba49d83-4560-4825-b2aa-d487b18c7eff">
+
+
 
 ### Services
+
+Click on the "Demo Health" link at the bottom of the sidebar.
+
+There are tabs associated with five services.  These are the services that power this demo.
+* Generate Traffic - synthetic data generation
+* HCD to Presto - ETL
+* Presto Insights - Analytical queries
+* Presto to HCD - Write pre-computed data for inexpensive consumption via Web UI
+
+<img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/07af3757-ff74-4c2c-8d8a-69cd8fdd45c9">
+
+Click on the "Presto_to_hcd" tab.  Discuss that this gives visibility into everything that's happening in the backend, including capturing
+all the queries that are issued.
+<img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/f8e9f0ee-c9ee-415d-92a9-3bf5ffa9f141">
+
+Expand the query slider.  Note that there are both HCD and Presto queries.
+<img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/3863ecb0-3c72-4975-b02d-c31df49df72a">
+
+Expand one of the Presto queries and explore its contents.
+<img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/ba431ad9-56e7-423b-b418-68245ee51d2d">
 
 
 ## Side Quests
 
 ### Spark
+
+The Spark workloads aren't directly visible from this WUI.  
+
+Consider [exploring the git repo for this project](https://github.ibm.com/Data-Labs/affiliate-junction-demo/blob/main/hcd_to_presto.py) and diving into the `hcd_to_presto.py` file.  Here you will see use of Pyspark to support ETL roll-up of impressions.
+Here is a snippet of that code:
+
+```python
+            for bucket in range(int(os.getenv("AFFILIATE_JUNCTION_SALES_BUCKETS_COUNT"))):
+                query = f"""
+                SELECT bucket_date, publishers_id, advertisers_id, cookie_id
+                FROM impressions_by_minute
+                WHERE bucket_date = '{previous_minute}' AND bucket = {bucket}
+                """
+                
+                rows = self.cassandra_connection.execute_query(
+                    query=query,
+                    query_description=f"Fetch impressions from bucket {bucket} for {previous_minute}"
+                )
+                for row in rows:
+                    all_impressions.append({
+                        'bucket_date': row.bucket_date,
+                        'publishers_id': row.publishers_id,
+                        'advertisers_id': row.advertisers_id,
+                        'cookie_id': row.cookie_id,
+                    })
+            
+            # Only proceed with Spark operations if we have data
+            try:
+                impressions_df = self.spark.createDataFrame(all_impressions)
+                
+                # Aggregate by publishers_id, advertisers_id, cookie_id to count impressions
+                # Multiple records for the same combo within the time period should be counted
+                # Include bucket_date in groupBy since all records should have the same bucket_date
+                final_df = impressions_df.groupBy("publishers_id", "advertisers_id", "cookie_id", "bucket_date") \
+                    .agg(count(lit(1)).alias("impressions")) \
+                    .withColumnRenamed("bucket_date", "timestamp")
+                
+                impressions_aggregated = final_df.count()
+```
 
 
 ### Presto WUI
