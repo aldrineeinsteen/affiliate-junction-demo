@@ -45,7 +45,7 @@ Note support for SSO and RBAC
 <img width="1414" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/21d87144-2365-490c-9d04-9205aab38da2">
 
 ### Infrastructure Manager
-Highlight HCD and Iceberg/minio have been deployed and both are associated with the Presto Engine.  Note that Spark is another available engine, but for the purposes of this demo we're running it on-demand directly within Pythoni
+Highlight HCD and Iceberg/minio have been deployed and both are associated with the Presto Engine.  Note that Spark is another available engine, but for the purposes of this demo we're running it on-demand directly within Python
 
 <img width="1414" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/de214a08-fcf8-43f0-af0a-139acf0b833a">
 
@@ -59,7 +59,7 @@ Expand HCD and Iceberg tabs, showing tables within the affiliate_junction catalo
 
 ### Query Workspace
 
-Notebook interface with persistant notebooks, and access to data sources in the side pane to quicklly build federated queries.  Execute [one of the example queries](https://github.ibm.com/Data-Labs/affiliate-junction-demo?tab=readme-ov-file#single-datasource-operations) from the README.md file.  Note that queries can span multiple data sources
+Notebook interface with persistent notebooks, and access to data sources in the side pane to quickly build federated queries.  Execute [one of the example queries](https://github.ibm.com/Data-Labs/affiliate-junction-demo?tab=readme-ov-file#single-datasource-operations) from the README.md file.  Note that queries can span multiple data sources
 
 <img width="1414" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/74391fa5-94ee-426f-8ba0-4e840b2c20d6">
 
@@ -89,7 +89,7 @@ Select one of the publishers from the drop down list in the sidebar.
 
 Note that the page loads quickly.  The content is a mix of static metadata and timeseries data.  Both of these are served from an HCD query
 (explore the query slider if curious).  This data is pre-computed by Spark and hits Presto historical data.  Since the queries are served from
-HCD they are performance and support web-scale workloads.
+HCD they are performant and support web-scale workloads.
 <img width="1414" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/3b819066-3837-4fa6-83a2-d22f80eef718">
 
 
@@ -116,15 +116,15 @@ cookies with "FRAUD" in the name since it will have a longer timeline.
 
 ### Admin
 
-The Admin persons may be interested in fraudulent conversions.  
+The Admin persona may be interested in fraudulent conversions.  
 
 Click the "Fraud Reporting" link from the sidebar.
 
-Note that this page loads across two different stages.  The first stage is a hits only the recent data stored within HCD and it returns quickly.
+Note that this page loads across two different stages.  The first stage hits only the recent data stored within HCD and it returns quickly.
 <img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/144f99e5-9c8e-42ce-89ff-9789b1ff5eb0">
 
 The second stage of this query issues a more expensive federated query from Presto that hits both the HCD and Iceberg data sources.  The results
-of this query are used to refine the table and give a full 360 degree view for the admin.
+of this query are used to refine the table and give a full 360-degree view for the admin.
 <img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/aba49d83-4560-4825-b2aa-d487b18c7eff">
 
 
@@ -203,6 +203,6 @@ charts and a live query viewer.
 <img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/7cba7af9-236d-4688-bb7e-00878ee0e9ee">
 
 If you will be demonstrating ad-hoc queries, then using the SQL Client interface may be preferable to the wx.d notebook interface for some
-scenarios.  There is less chrome and distration around the text field allowing for easier focus on the query itself.
+scenarios.  There is less chrome and distraction around the text field allowing for easier focus on the query itself.
 <img width="1430" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/c302fc64-ce62-4028-813b-ccc1d2138e20">
 
