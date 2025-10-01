@@ -249,6 +249,13 @@ Once Presto and HCD are available, execute `setup.sh` to install other pre-reqs 
 ## Troubleshooting
 
 
+### Starting Over
+
+If services are not behaving as expected (e.g. data not flowing, slow performance) then restart the server.
+On boot the server will truncate all tables (thus improving performance) and will restart all services
+in the proper order.
+
+
 ### Services
 
 Backend ops are python scripts managed by `systemd` with unit files.

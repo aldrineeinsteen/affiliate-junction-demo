@@ -1,6 +1,6 @@
 [Unit]
 Description=Remove old data from Presto Iceberg tables
-After=network.target
+After=presto_to_hcd.service
 
 
 [Service]

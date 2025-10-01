@@ -26,7 +26,7 @@ echo "Configuring systemctl"
 sudo cp *.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable generate_traffic hcd_to_presto presto_to_hcd presto_insights presto_cleanup uvicorn.service truncate_all_tables.service
-sudo systemctl start generate_traffic hcd_to_presto uvicorn.service truncate_all_tables.service
+sudo systemctl start generate_traffic hcd_to_presto uvicorn.service
 sleep 60 	# Wait for Presto DDL commands to complete
 sudo systemctl start presto_to_hcd presto_insights presto_cleanup
 echo "systemctl done"

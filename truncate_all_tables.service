@@ -1,19 +1,16 @@
 [Unit]
-Description=Truncate and cleanup all Presto and HCD Tables (shutdown hook before hcd)
+Description=Generate Traffic
 After=hcd.service
-Wants=hcd.service
-PartOf=hcd.service
+
 
 [Service]
-Type=oneshot
-# Do nothing at start; just become active so ExecStop will be called at shutdown.
-ExecStart=/bin/true
-# Run your script as the service is being stopped (e.g., on shutdown/reboot or when hcd stops).
-ExecStop=/home/watsonx/affiliate-junction-demo/.venv/bin/python /home/watsonx/affiliate-junction-demo/truncate_all_tables.py
+Type=simple
 Environment=PATH=/home/watsonx/affiliate-junction-demo/.venv/bin:/usr/local/bin:/usr/bin:/bin
 Environment=VIRTUAL_ENV=/home/watsonx/affiliate-junction-demo/.venv
+ExecStartPre=/bin/sleep 120
+ExecStart=/home/watsonx/affiliate-junction-demo/.venv/bin/python /home/watsonx/affiliate-junction-demo/truncate_all_tables.py
+Restart=on-failure
 User=watsonx
-RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
