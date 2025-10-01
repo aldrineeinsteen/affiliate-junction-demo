@@ -11,6 +11,7 @@ ExecStartPre=/bin/sleep 60
 ExecStart=/home/watsonx/affiliate-junction-demo/.venv/bin/python /home/watsonx/affiliate-junction-demo/hcd_to_presto.py
 Restart=on-failure
 User=watsonx
+TimeoutStartSec=120
 
 [Install]
 WantedBy=multi-user.target

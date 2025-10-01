@@ -11,6 +11,7 @@ ExecStartPre=/bin/sleep 30
 ExecStart=/home/watsonx/affiliate-junction-demo/.venv/bin/python /home/watsonx/affiliate-junction-demo/generate_traffic.py
 Restart=on-failure
 User=watsonx
+TimeoutStartSec=90
 
 [Install]
 WantedBy=multi-user.target

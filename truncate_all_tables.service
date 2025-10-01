@@ -11,6 +11,7 @@ ExecStartPre=/bin/sleep 120
 ExecStart=/home/watsonx/affiliate-junction-demo/.venv/bin/python /home/watsonx/affiliate-junction-demo/truncate_all_tables.py
 Restart=on-failure
 User=watsonx
+TimeoutStartSec=180
 
 [Install]
 WantedBy=multi-user.target
