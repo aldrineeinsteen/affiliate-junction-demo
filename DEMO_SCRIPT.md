@@ -1,6 +1,7 @@
 # Affiliate Junction Demo Flow
 
 Below is an example flow for delivering the Affiliate Junction demo to a mixed audience.
+Note that it will take up to 5 minutes after deploying before data is fully flowing through the pipeline.
 
 ## Introduction
 
