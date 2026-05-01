@@ -483,12 +483,11 @@ Description=HCD (Hyperconverged Database) Service
 After=network.target
 
 [Service]
-Type=forking
+Type=simple
 User=root
 Group=root
-ExecStart=${HCD_INSTALL_DIR}/bin/hcd -R cassandra
+ExecStart=${HCD_INSTALL_DIR}/bin/hcd cassandra -R -f
 ExecStop=${HCD_INSTALL_DIR}/bin/hcd cassandra-stop
-PIDFile=${HCD_INSTALL_DIR}/hcd.pid
 Restart=on-failure
 RestartSec=10
 LimitNOFILE=100000
