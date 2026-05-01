@@ -302,10 +302,13 @@ else
     echo_info "Creating security group..."
     SG_ID=$(ibmcloud is security-group-create "${SECURITY_GROUP_NAME}" "${VPC_ID}" --resource-group-name "${RESOURCE_GROUP}" --output json | jq -r '.id')
     
-    # Add rules for SSH (22) and web UI (10000)
+    # Add rules for SSH (22), Affiliate Junction (10000), and watsonx.data ports (6443, 8381, 9001)
     echo_info "Adding security group rules..."
     ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 22 --port-max 22
     ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 10000 --port-max 10000
+    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 6443 --port-max 6443
+    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 8381 --port-max 8381
+    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 9001 --port-max 9001
     ibmcloud is security-group-rule-add "${SG_ID}" outbound all
     echo_info "Security group created with ID: ${SG_ID}"
 fi
