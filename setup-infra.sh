@@ -708,7 +708,7 @@ init_presto_schema() {
         }
     }
     
-    # Print any remaining statement (shouldn't happen with well-formed SQL)
+    # Print any remaining statement (should not happen with well-formed SQL)
     END {
         if (stmt != "") {
             gsub(/;[[:space:]]*$/, "", stmt)
