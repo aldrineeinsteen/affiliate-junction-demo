@@ -396,6 +396,7 @@ packages:
   - python3-pip
   - wget
   - curl
+  - unzip
 
 runcmd:
   - echo "Cloud-init complete" > /root/cloud-init-complete.txt
