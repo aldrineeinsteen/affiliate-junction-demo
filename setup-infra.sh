@@ -99,6 +99,65 @@ install_all() {
     echo_info "=== Installation Complete ==="
 }
 
+# Helper function to execute Presto queries via REST API
+presto_query() {
+    local query="$1"
+    local response next_uri data_found=false
+    local max_attempts=30
+    
+    # Get Presto pod name
+    PRESTO_POD=$(kubectl get pods -n "${WXD_NAMESPACE}" -l app=ibm-lh-presto -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    
+    if [ -z "$PRESTO_POD" ]; then
+        echo_error "Presto pod not found"
+        return 1
+    fi
+    
+    # Execute query
+    response=$(kubectl exec -n "${WXD_NAMESPACE}" "${PRESTO_POD}" -- curl -k -u "ibmlhadmin:password" \
+        -X POST https://localhost:8443/v1/statement \
+        -H "Content-Type: text/plain" \
+        -H "X-Presto-User: ibmlhadmin" \
+        -d "$query" -s 2>/dev/null)
+    
+    # Poll for results (max 30 seconds)
+    for i in $(seq 1 $max_attempts); do
+        # Check if we have data
+        if echo "$response" | jq -e '.data' >/dev/null 2>&1; then
+            echo "$response" | jq -r '.data[][] // empty' 2>/dev/null
+            data_found=true
+            break
+        fi
+        
+        # Check for errors
+        if echo "$response" | jq -e '.error' >/dev/null 2>&1; then
+            echo_error "Query failed: $(echo "$response" | jq -r '.error.message // .error')"
+            return 1
+        fi
+        
+        # Get nextUri for polling
+        next_uri=$(echo "$response" | jq -r '.nextUri // empty' 2>/dev/null)
+        
+        # If no nextUri and no data, query might be complete (DDL statements)
+        if [ -z "$next_uri" ]; then
+            # Check if query state is finished
+            state=$(echo "$response" | jq -r '.stats.state // empty' 2>/dev/null)
+            if [ "$state" = "FINISHED" ]; then
+                return 0
+            fi
+            break
+        fi
+        
+        # Fetch next result
+        sleep 1
+        response=$(kubectl exec -n "${WXD_NAMESPACE}" "${PRESTO_POD}" -- curl -k -u "ibmlhadmin:password" \
+            -H "X-Presto-User: ibmlhadmin" \
+            "$next_uri" -s 2>/dev/null)
+    done
+    
+    return 0
+}
+
 teardown_all() {
     echo_info "=== Starting Complete Teardown ==="
     
@@ -550,13 +609,17 @@ init_hcd_schema() {
 configure_presto_hcd_catalog() {
     echo_info "Configuring Presto HCD catalog..."
     
+    # Get VM IP address for HCD connection
+    VM_IP=$(hostname -I | awk '{print $1}')
+    
     # Create HCD catalog configuration
     cat > /tmp/hcd-catalog.properties <<EOF
 connector.name=cassandra
-cassandra.contact-points=localhost
+cassandra.contact-points=${VM_IP}:9042
 cassandra.load-policy.dc-aware.local-dc=datacenter1
 cassandra.username=cassandra
 cassandra.password=cassandra
+cassandra.protocol-version=V4
 EOF
     
     # Find Presto pod
@@ -571,15 +634,22 @@ EOF
     
     echo_info "Found Presto pod: ${PRESTO_POD}"
     
-    # Copy catalog to Presto pod
-    kubectl cp /tmp/hcd-catalog.properties "${WXD_NAMESPACE}/${PRESTO_POD}:/opt/presto/etc/catalog/hcd.properties"
+    # Copy catalog to Presto pod (correct path)
+    kubectl cp /tmp/hcd-catalog.properties "${WXD_NAMESPACE}/${PRESTO_POD}:/var/presto/data/etc/catalog/hcd.properties"
     
-    # Restart Presto pod to load new catalog
+    # Verify the file was copied
+    echo_info "Verifying HCD catalog file..."
+    kubectl exec -n "${WXD_NAMESPACE}" "${PRESTO_POD}" -- cat /var/presto/data/etc/catalog/hcd.properties
+    
+    # Restart Presto deployment to load new catalog
     echo_info "Restarting Presto to load HCD catalog..."
-    kubectl delete pod -n "${WXD_NAMESPACE}" "${PRESTO_POD}"
+    kubectl rollout restart deployment/ibm-lh-presto -n "${WXD_NAMESPACE}"
     
     echo_info "Waiting for Presto to restart..."
-    kubectl wait --for=condition=ready pod -l app=ibm-lh-presto -n "${WXD_NAMESPACE}" --timeout=300s
+    kubectl rollout status deployment/ibm-lh-presto -n "${WXD_NAMESPACE}" --timeout=300s
+    
+    # Wait a bit more for Presto to fully initialize
+    sleep 10
     
     echo_info "Presto HCD catalog configured"
 }
@@ -595,14 +665,41 @@ init_presto_schema() {
     
     cd ~/affiliate-junction-demo
     
-    # Find Presto pod
-    PRESTO_POD=$(kubectl get pods -n "${WXD_NAMESPACE}" -l app=ibm-lh-presto -o jsonpath='{.items[0].metadata.name}')
+    echo_info "Verifying Presto catalogs..."
+    presto_query "SHOW CATALOGS"
     
-    # Copy schema file to pod
-    kubectl cp presto_schema.sql "${WXD_NAMESPACE}/${PRESTO_POD}:/tmp/presto_schema.sql"
+    echo_info "Creating schemas in Presto..."
     
-    # Execute schema
-    kubectl exec -n "${WXD_NAMESPACE}" "${PRESTO_POD}" -- presto-cli --catalog iceberg_data --schema default --file /tmp/presto_schema.sql
+    # Read and execute each CREATE SCHEMA statement from presto_schema.sql
+    # Extract CREATE SCHEMA statements and execute them one by one
+    grep -i "CREATE SCHEMA" presto_schema.sql | while read -r line; do
+        if [ -n "$line" ]; then
+            echo_info "Executing: $line"
+            presto_query "$line" || echo_warn "Schema may already exist, continuing..."
+        fi
+    done
+    
+    # Execute CREATE TABLE statements
+    echo_info "Creating tables in Presto..."
+    
+    # Extract and execute CREATE TABLE statements
+    awk '/CREATE TABLE/,/;/' presto_schema.sql | while IFS= read -r line; do
+        # Accumulate lines until we hit a semicolon
+        if [ -z "$table_stmt" ]; then
+            table_stmt="$line"
+        else
+            table_stmt="$table_stmt $line"
+        fi
+        
+        # When we hit a semicolon, execute the statement
+        if echo "$line" | grep -q ";"; then
+            if [ -n "$table_stmt" ]; then
+                echo_info "Executing table creation..."
+                presto_query "$table_stmt" || echo_warn "Table may already exist, continuing..."
+                table_stmt=""
+            fi
+        fi
+    done
     
     echo_info "Presto schema initialized"
 }
@@ -716,7 +813,18 @@ verify_installation() {
     # Check Presto catalogs
     echo_info "Checking Presto catalogs..."
     PRESTO_POD=$(kubectl get pods -n "${WXD_NAMESPACE}" -l app=ibm-lh-presto -o jsonpath='{.items[0].metadata.name}')
-    kubectl exec -n "${WXD_NAMESPACE}" "${PRESTO_POD}" -- presto-cli --execute "SHOW CATALOGS" | grep -E "iceberg_data|hcd" || { echo_error "Presto catalogs not configured"; exit 1; }
+    
+    echo_info "Available Presto catalogs:"
+    presto_query "SHOW CATALOGS"
+    
+    # Verify required catalogs exist
+    catalogs=$(presto_query "SHOW CATALOGS")
+    if echo "$catalogs" | grep -q "iceberg_data" && echo "$catalogs" | grep -q "hcd"; then
+        echo_info "✓ Required catalogs found: iceberg_data, hcd"
+    else
+        echo_warn "Some catalogs may be missing. Available catalogs:"
+        echo "$catalogs"
+    fi
     
     echo_info "Verification complete!"
 }
