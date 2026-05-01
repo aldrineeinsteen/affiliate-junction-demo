@@ -343,6 +343,18 @@ download_required_files() {
 prepare_minimal_config() {
     echo_info "Preparing configuration..."
     
+    # Install Java 17 for PySpark (keep Java 11 for HCD)
+    echo_info "Installing Java 17 for PySpark ETL services..."
+    dnf install -y java-17-openjdk java-17-openjdk-devel
+    
+    # Verify Java 17 is installed
+    if [ -d "/usr/lib/jvm/java-17-openjdk" ]; then
+        echo_info "Java 17 installed successfully at /usr/lib/jvm/java-17-openjdk"
+    else
+        echo_error "Java 17 installation failed"
+        exit 1
+    fi
+    
     cd "${WXD_INSTALLER_DIR}"
     
     # Backup original values.yaml
@@ -765,10 +777,13 @@ update_affiliate_junction() {
         cp .env .env.backup.$(date +%Y%m%d_%H%M%S)
     fi
     
+    # Get VM IP address
+    VM_IP=$(hostname -I | awk '{print $1}')
+    
     # Update .env with watsonx.data configuration
     cat > .env <<EOF
 # HCD Configuration
-HCD_HOST=localhost
+HCD_HOST=${VM_IP}
 HCD_PORT=9042
 HCD_DATACENTER=datacenter1
 HCD_KEYSPACE=affiliate_junction
@@ -790,6 +805,9 @@ MINIO_SECRET_KEY=password123
 MINIO_BUCKET=iceberg-bucket
 EOF
     
+    # Extract Presto certificate for ETL services
+    extract_presto_certificate
+    
     # Setup port forwards (run in background)
     setup_port_forwards
     
@@ -801,6 +819,38 @@ EOF
     ./setup.sh
     
     echo_info "Affiliate Junction updated and services started"
+}
+
+extract_presto_certificate() {
+    echo_info "Extracting Presto TLS certificate..."
+    
+    # Create certs directory
+    mkdir -p /certs
+    
+    # Try to extract certificate from internal-tls secret
+    if kubectl get secret -n wxd internal-tls &>/dev/null; then
+        # Try different possible keys in the secret
+        for key in tls.crt ca.crt cert.pem certificate.pem; do
+            if kubectl get secret -n wxd internal-tls -o jsonpath="{.data.$key}" 2>/dev/null | base64 -d > /certs/presto.crt 2>/dev/null; then
+                if [ -s /certs/presto.crt ]; then
+                    echo_info "Successfully extracted certificate from internal-tls secret (key: $key)"
+                    chmod 644 /certs/presto.crt
+                    return 0
+                fi
+            fi
+        done
+    fi
+    
+    # If certificate extraction failed, create a self-signed cert or disable verification
+    echo_warning "Could not extract Presto certificate from Kubernetes secrets"
+    echo_info "Adding PRESTO_VERIFY_SSL=false to .env for demo environment"
+    
+    # Add to .env file
+    if ! grep -q "PRESTO_VERIFY_SSL" .env; then
+        echo "" >> .env
+        echo "# Disable SSL verification for demo (certificate not available)" >> .env
+        echo "PRESTO_VERIFY_SSL=false" >> .env
+    fi
 }
 
 setup_port_forwards() {
