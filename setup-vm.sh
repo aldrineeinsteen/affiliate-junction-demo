@@ -395,8 +395,9 @@ users:
 
 packages:
   - git
-  - python3
-  - python3-pip
+  - python39
+  - python39-pip
+  - python39-devel
   - wget
   - curl
   - unzip

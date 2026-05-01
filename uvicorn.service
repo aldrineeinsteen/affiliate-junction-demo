@@ -5,12 +5,12 @@ After=generate_traffic.service
 
 [Service]
 Type=simple
-Environment=PATH=/home/watsonx/affiliate-junction-demo/.venv/bin:/usr/local/bin:/usr/bin:/bin
-Environment=VIRTUAL_ENV=/home/watsonx/affiliate-junction-demo/.venv
-WorkingDirectory=/home/watsonx/affiliate-junction-demo
-ExecStart=/home/watsonx/affiliate-junction-demo/.venv/bin/uvicorn web.main:app --reload --host 0.0.0.0 --port 10000
+Environment=PATH=/root/affiliate-junction-demo/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=VIRTUAL_ENV=/root/affiliate-junction-demo/.venv
+WorkingDirectory=/root/affiliate-junction-demo
+ExecStart=/root/affiliate-junction-demo/.venv/bin/uvicorn web.main:app --reload --host 0.0.0.0 --port 10000
 Restart=on-failure
-User=watsonx
+User=root
 
 [Install]
 WantedBy=multi-user.target

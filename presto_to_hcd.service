@@ -5,11 +5,12 @@ After=hcd_to_presto.service
 
 [Service]
 Type=simple
-Environment=PATH=/home/watsonx/affiliate-junction-demo/.venv/bin:/usr/local/bin:/usr/bin:/bin
-Environment=VIRTUAL_ENV=/home/watsonx/affiliate-junction-demo/.venv
-ExecStart=/home/watsonx/affiliate-junction-demo/.venv/bin/python /home/watsonx/affiliate-junction-demo/presto_to_hcd.py
+Environment=PATH=/root/affiliate-junction-demo/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=VIRTUAL_ENV=/root/affiliate-junction-demo/.venv
+WorkingDirectory=/root/affiliate-junction-demo
+ExecStart=/root/affiliate-junction-demo/.venv/bin/python /root/affiliate-junction-demo/presto_to_hcd.py
 Restart=on-failure
-User=watsonx
+User=root
 
 [Install]
 WantedBy=multi-user.target

@@ -5,12 +5,13 @@ After=truncate_all_tables.service
 
 [Service]
 Type=simple
-Environment=PATH=/home/watsonx/affiliate-junction-demo/.venv/bin:/usr/local/bin:/usr/bin:/bin
-Environment=VIRTUAL_ENV=/home/watsonx/affiliate-junction-demo/.venv
+Environment=PATH=/root/affiliate-junction-demo/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=VIRTUAL_ENV=/root/affiliate-junction-demo/.venv
+WorkingDirectory=/root/affiliate-junction-demo
 ExecStartPre=/bin/sleep 30
-ExecStart=/home/watsonx/affiliate-junction-demo/.venv/bin/python /home/watsonx/affiliate-junction-demo/generate_traffic.py
+ExecStart=/root/affiliate-junction-demo/.venv/bin/python /root/affiliate-junction-demo/generate_traffic.py
 Restart=on-failure
-User=watsonx
+User=root
 TimeoutStartSec=90
 
 [Install]

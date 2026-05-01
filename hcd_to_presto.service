@@ -5,12 +5,13 @@ After=generate_traffic.service
 
 [Service]
 Type=simple
-Environment=PATH=/home/watsonx/affiliate-junction-demo/.venv/bin:/usr/local/bin:/usr/bin:/bin
-Environment=VIRTUAL_ENV=/home/watsonx/affiliate-junction-demo/.venv
+Environment=PATH=/root/affiliate-junction-demo/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=VIRTUAL_ENV=/root/affiliate-junction-demo/.venv
+WorkingDirectory=/root/affiliate-junction-demo
 ExecStartPre=/bin/sleep 60
-ExecStart=/home/watsonx/affiliate-junction-demo/.venv/bin/python /home/watsonx/affiliate-junction-demo/hcd_to_presto.py
+ExecStart=/root/affiliate-junction-demo/.venv/bin/python /root/affiliate-junction-demo/hcd_to_presto.py
 Restart=on-failure
-User=watsonx
+User=root
 TimeoutStartSec=120
 
 [Install]
