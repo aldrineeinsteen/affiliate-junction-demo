@@ -401,6 +401,7 @@ packages:
   - curl
   - unzip
   - java-11-openjdk
+  - jq
 
 runcmd:
   - echo "Cloud-init complete" > /root/cloud-init-complete.txt
