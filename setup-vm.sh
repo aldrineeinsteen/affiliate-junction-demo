@@ -400,6 +400,7 @@ packages:
   - wget
   - curl
   - unzip
+  - java-11-openjdk
 
 runcmd:
   - echo "Cloud-init complete" > /root/cloud-init-complete.txt
