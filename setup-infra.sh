@@ -263,9 +263,9 @@ download_required_files() {
     echo_info "All required files are available"
 }
 
-# Phase 1: Prepare minimal configuration
+# Phase 1: Prepare configuration
 prepare_minimal_config() {
-    echo_info "Preparing minimal configuration..."
+    echo_info "Preparing configuration..."
     
     cd "${WXD_INSTALLER_DIR}"
     
@@ -274,18 +274,9 @@ prepare_minimal_config() {
         cp values.yaml values.yaml.original
     fi
     
-    # Use sed to modify values.yaml for minimal deployment
-    echo_info "Modifying values.yaml for minimal deployment..."
-    sed -i.bak \
-        -e 's/lhingestionApi: 1/lhingestionApi: 0/' \
-        -e 's/lhconsoleApi: 1/lhconsoleApi: 0/' \
-        -e 's/lhamsApi: 1/lhamsApi: 0/' \
-        -e 's/consoleUI: 1/consoleUI: 0/' \
-        -e 's/validator: 1/validator: 0/' \
-        values.yaml
-    
-    echo_info "Minimal configuration prepared"
-    echo_info "Disabled components: lhingestionApi, lhconsoleApi, lhamsApi, consoleUI, validator"
+    # Install ALL components (full watsonx.data installation)
+    echo_info "Using full watsonx.data configuration (all components enabled)"
+    echo_info "This includes: Console UI, APIs, Spark, Presto, MinIO, Metastore, etc."
 }
 
 # Phase 2: Run watsonx.data installer
