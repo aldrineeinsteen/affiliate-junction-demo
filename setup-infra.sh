@@ -417,12 +417,6 @@ ssl_storage_port: 7001
 listen_address: localhost
 start_native_transport: true
 native_transport_port: 9042
-start_rpc: false
-rpc_address: localhost
-rpc_port: 9160
-rpc_keepalive: true
-rpc_server_type: sync
-thrift_framed_transport_size_in_mb: 15
 incremental_backups: false
 snapshot_before_compaction: false
 auto_snapshot: true
@@ -442,7 +436,6 @@ endpoint_snitch: SimpleSnitch
 dynamic_snitch_update_interval_in_ms: 100
 dynamic_snitch_reset_interval_in_ms: 600000
 dynamic_snitch_badness_threshold: 0.1
-request_scheduler: org.apache.cassandra.scheduler.NoScheduler
 server_encryption_options:
     internode_encryption: none
 client_encryption_options:
@@ -474,6 +467,18 @@ unlogged_batch_across_partitions_warn_threshold: 10
 compaction_large_partition_warning_threshold_mb: 100
 gc_warn_threshold_in_ms: 1000
 EOF
+    
+    # Copy JVM options files from HCD resources
+    echo_info "Copying JVM configuration files..."
+    if [ -f "${HCD_INSTALL_DIR}/resources/cassandra/conf/jvm-server.options" ]; then
+        cp "${HCD_INSTALL_DIR}/resources/cassandra/conf/jvm-server.options" "${HCD_INSTALL_DIR}/conf/"
+    fi
+    if [ -f "${HCD_INSTALL_DIR}/resources/cassandra/conf/jvm11-server.options" ]; then
+        cp "${HCD_INSTALL_DIR}/resources/cassandra/conf/jvm11-server.options" "${HCD_INSTALL_DIR}/conf/"
+    fi
+    if [ -f "${HCD_INSTALL_DIR}/resources/cassandra/conf/jvm11-clients.options" ]; then
+        cp "${HCD_INSTALL_DIR}/resources/cassandra/conf/jvm11-clients.options" "${HCD_INSTALL_DIR}/conf/"
+    fi
     
     # Create systemd service
     echo_info "Creating systemd service..."
