@@ -243,11 +243,21 @@ download_required_files() {
     
     # Extract HCD if not already extracted
     if [ ! -d "hcd-${HCD_VERSION}" ]; then
-        echo_info "Extracting HCD..."
+        echo_info "Extracting HCD ZIP..."
         unzip -q "${HCD_ZIP}"
-        echo_info "HCD extracted"
+        
+        # The ZIP contains tar.gz files, extract the main HCD binary
+        if [ -f "hcd-${HCD_VERSION}-bin.tar.gz" ]; then
+            echo_info "Extracting HCD binary from tar.gz..."
+            tar -xzf "hcd-${HCD_VERSION}-bin.tar.gz"
+            echo_info "HCD extracted successfully"
+        else
+            echo_error "hcd-${HCD_VERSION}-bin.tar.gz not found after unzipping"
+            ls -la
+            exit 1
+        fi
     else
-        echo_info "HCD already extracted"
+        echo_info "HCD already extracted at hcd-${HCD_VERSION}"
     fi
     
     echo_info "All required files are available"
@@ -653,22 +663,49 @@ verify_installation() {
 }
 
 show_access_info() {
+    # Get VM IP address
+    VM_IP=$(hostname -I | awk '{print $1}')
+    
     echo ""
     echo_info "=== Installation Complete ==="
     echo ""
-    echo "Component Access:"
+    echo "VM Information:"
+    echo "  VM IP Address:       ${VM_IP}"
+    echo "  Hostname:            $(hostname)"
+    echo ""
+    echo "Component Access (On VM):"
     echo "  HCD (Cassandra):     localhost:9042"
     echo "  Presto:              https://localhost:8443"
     echo "  MinIO Console:       http://localhost:9001 (admin/password123)"
     echo "  MinIO API:           http://localhost:9000"
     echo "  Affiliate Junction:  http://localhost:10000"
     echo ""
-    echo "HCD Management:"
+    echo "Remote Access (From Your Laptop):"
+    echo "  You need to set up SSH port forwarding to access services from your laptop."
+    echo ""
+    echo "  Option 1: SSH Port Forward (Recommended)"
+    echo "  -----------------------------------------"
+    echo "  Run this command on your laptop:"
+    echo "  ssh -L 10000:localhost:10000 -L 8443:localhost:8443 -L 9001:localhost:9001 root@${VM_IP}"
+    echo ""
+    echo "  Then access from your laptop browser:"
+    echo "    Affiliate Junction:  http://localhost:10000"
+    echo "    Presto Console:      https://localhost:8443"
+    echo "    MinIO Console:       http://localhost:9001"
+    echo ""
+    echo "  Option 2: Direct Access (If Firewall Allows)"
+    echo "  --------------------------------------------"
+    echo "  If ports are open in firewall/security groups:"
+    echo "    Affiliate Junction:  http://${VM_IP}:10000"
+    echo "    Presto Console:      https://${VM_IP}:8443"
+    echo "    MinIO Console:       http://${VM_IP}:9001"
+    echo ""
+    echo "HCD Management (On VM):"
     echo "  Service: systemctl status hcd"
     echo "  CQL Shell: ${HCD_INSTALL_DIR}/bin/cqlsh"
     echo "  Nodetool: ${HCD_INSTALL_DIR}/bin/nodetool status"
     echo ""
-    echo "Kubernetes:"
+    echo "Kubernetes (On VM):"
     echo "  Cluster: ${KIND_CLUSTER}"
     echo "  Namespace: ${WXD_NAMESPACE}"
     echo "  Context: kind-${KIND_CLUSTER}"
