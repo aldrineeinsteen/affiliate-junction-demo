@@ -668,36 +668,72 @@ init_presto_schema() {
     echo_info "Verifying Presto catalogs..."
     presto_query "SHOW CATALOGS"
     
-    echo_info "Creating schemas in Presto..."
+    echo_info "Creating schemas and tables in Presto..."
     
-    # Read and execute each CREATE SCHEMA statement from presto_schema.sql
-    # Extract CREATE SCHEMA statements and execute them one by one
-    grep -i "CREATE SCHEMA" presto_schema.sql | while read -r line; do
-        if [ -n "$line" ]; then
-            echo_info "Executing: $line"
-            presto_query "$line" || echo_warn "Schema may already exist, continuing..."
-        fi
-    done
+    # Parse SQL file: remove comments, handle multi-line statements, remove semicolons
+    # This awk script:
+    # 1. Skips comment lines (starting with --)
+    # 2. Skips empty lines
+    # 3. Accumulates lines until it finds a semicolon
+    # 4. Removes the semicolon and prints the complete statement
+    awk '
+    BEGIN { stmt = "" }
     
-    # Execute CREATE TABLE statements
-    echo_info "Creating tables in Presto..."
+    # Skip comment lines
+    /^[[:space:]]*--/ { next }
     
-    # Extract and execute CREATE TABLE statements
-    awk '/CREATE TABLE/,/;/' presto_schema.sql | while IFS= read -r line; do
-        # Accumulate lines until we hit a semicolon
-        if [ -z "$table_stmt" ]; then
-            table_stmt="$line"
-        else
-            table_stmt="$table_stmt $line"
+    # Skip empty lines
+    /^[[:space:]]*$/ { next }
+    
+    # Accumulate non-empty, non-comment lines
+    {
+        # Remove leading/trailing whitespace
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+        
+        # Add to statement with space separator
+        if (stmt == "") {
+            stmt = $0
+        } else {
+            stmt = stmt " " $0
+        }
+        
+        # If line ends with semicolon, we have a complete statement
+        if ($0 ~ /;[[:space:]]*$/) {
+            # Remove the semicolon
+            gsub(/;[[:space:]]*$/, "", stmt)
+            # Print the statement
+            print stmt
+            # Reset for next statement
+            stmt = ""
+        }
+    }
+    
+    # Print any remaining statement (shouldn't happen with well-formed SQL)
+    END {
+        if (stmt != "") {
+            gsub(/;[[:space:]]*$/, "", stmt)
+            print stmt
+        }
+    }
+    ' presto_schema.sql | while IFS= read -r sql_stmt; do
+        # Skip if statement is empty
+        if [ -z "$sql_stmt" ]; then
+            continue
         fi
         
-        # When we hit a semicolon, execute the statement
-        if echo "$line" | grep -q ";"; then
-            if [ -n "$table_stmt" ]; then
-                echo_info "Executing table creation..."
-                presto_query "$table_stmt" || echo_warn "Table may already exist, continuing..."
-                table_stmt=""
-            fi
+        # Determine statement type for better logging
+        if echo "$sql_stmt" | grep -qi "CREATE SCHEMA"; then
+            echo_info "Creating schema..."
+        elif echo "$sql_stmt" | grep -qi "CREATE TABLE"; then
+            table_name=$(echo "$sql_stmt" | grep -oP 'CREATE TABLE[^(]+\K[a-z_]+\.[a-z_]+\.[a-z_]+' | head -1)
+            echo_info "Creating table: $table_name"
+        fi
+        
+        # Execute the statement
+        if presto_query "$sql_stmt"; then
+            echo_info "✓ Statement executed successfully"
+        else
+            echo_warn "Statement may have failed or object already exists, continuing..."
         fi
     done
     
