@@ -15,18 +15,48 @@ fi
 # Bootstrap python environment
 echo "Setting up Python virtual environment..."
 
-# Detect available Python version
-if command -v python3.11 &> /dev/null; then
+# Function to check Python version
+check_python_version() {
+    local python_cmd=$1
+    local version=$($python_cmd --version 2>&1 | grep -oP '\d+\.\d+' | head -1)
+    local major=$(echo $version | cut -d. -f1)
+    local minor=$(echo $version | cut -d. -f2)
+    
+    # Need Python 3.9 or higher
+    if [ "$major" -ge 3 ] && [ "$minor" -ge 9 ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Detect available Python version (need 3.9+)
+PYTHON_CMD=""
+
+if command -v python3.11 &> /dev/null && check_python_version python3.11; then
     PYTHON_CMD=python3.11
-elif command -v python3.9 &> /dev/null; then
+elif command -v python3.9 &> /dev/null && check_python_version python3.9; then
     PYTHON_CMD=python3.9
-elif command -v python3 &> /dev/null; then
+elif command -v python3 &> /dev/null && check_python_version python3; then
     PYTHON_CMD=python3
-else
-    echo "ERROR: No Python 3 installation found!"
-    echo "Please install Python 3.9 or higher:"
-    echo "  sudo dnf install -y python3 python3-pip python3-devel"
-    exit 1
+fi
+
+if [ -z "$PYTHON_CMD" ]; then
+    echo "ERROR: Python 3.9 or higher not found!"
+    echo "Current Python version is too old (need 3.9+)"
+    echo ""
+    echo "Installing Python 3.9..."
+    sudo dnf install -y python39 python39-pip python39-devel
+    
+    if command -v python3.9 &> /dev/null; then
+        PYTHON_CMD=python3.9
+        echo "Python 3.9 installed successfully"
+    else
+        echo "ERROR: Failed to install Python 3.9"
+        echo "Please install manually:"
+        echo "  sudo dnf install -y python39 python39-pip python39-devel"
+        exit 1
+    fi
 fi
 
 echo "Using Python: $PYTHON_CMD ($($PYTHON_CMD --version))"
