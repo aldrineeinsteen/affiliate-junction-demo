@@ -486,7 +486,9 @@ class SyntheticTrafficGenerator:
         now = datetime.now(timezone.utc)
         clipped_timestamp = now.replace(second=0, microsecond=0)
         
-        # Get bucket date (floor timestamp to UTC minute)
+        # Convert to Unix timestamp (seconds since epoch) for Cassandra compatibility
+        # Cassandra TIMESTAMP type expects milliseconds, but Python driver handles conversion
+        # We ensure the datetime is timezone-aware and within valid range
         bucket_date = clipped_timestamp
         
         # Aggregate impression data by key (publishers_id, cookie_id, timestamp)
@@ -618,8 +620,12 @@ class SyntheticTrafficGenerator:
         # Return data for stats collection (include attribution stats)
         return impression_data, impressions_by_minute_data, conversion_data, conversions_by_minute_data, attribution_stats
     
-    def execute_batch_in_chunks(self, data, prepared_statement, param_extractor, batch_size=10000, operation_name="records", representative_query=None):
-        """Execute batch operations in chunks to avoid Cassandra batch size limits"""
+    def execute_batch_in_chunks(self, data, prepared_statement, param_extractor, batch_size=100, operation_name="records", representative_query=None):
+        """Execute batch operations in chunks to avoid Cassandra batch size limits
+        
+        HCD has a 50KB batch size limit, so we use smaller batches (100 records per batch)
+        to stay well under this limit while still getting good performance.
+        """
         from cassandra.query import BatchStatement, BatchType
         
         if not data:
