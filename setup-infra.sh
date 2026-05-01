@@ -751,7 +751,13 @@ update_affiliate_junction() {
     
     cd ~/affiliate-junction-demo
     
-    # Stop services
+    # Check if setup.sh exists
+    if [ ! -f setup.sh ]; then
+        echo_error "setup.sh not found in ~/affiliate-junction-demo"
+        exit 1
+    fi
+    
+    # Stop services if they exist
     stop_affiliate_services
     
     # Backup existing .env
@@ -759,7 +765,7 @@ update_affiliate_junction() {
         cp .env .env.backup.$(date +%Y%m%d_%H%M%S)
     fi
     
-    # Update .env
+    # Update .env with watsonx.data configuration
     cat > .env <<EOF
 # HCD Configuration
 HCD_HOST=localhost
@@ -790,10 +796,11 @@ EOF
     # Wait for port forwards to be established
     sleep 5
     
-    # Restart services
-    start_affiliate_services
+    # Run setup.sh to create services and start application
+    echo_info "Running setup.sh to create and start services..."
+    ./setup.sh
     
-    echo_info "Affiliate Junction updated"
+    echo_info "Affiliate Junction updated and services started"
 }
 
 setup_port_forwards() {
