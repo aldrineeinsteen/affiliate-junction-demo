@@ -306,18 +306,42 @@ run_wxd_installer() {
     # Make installer executable
     chmod +x installer.sh
     
-    # Run installer (it will start port-forwards in background)
+    # Run installer (it will start port-forwards that block the terminal)
     echo_info "Running watsonx.data installer (this may take 10-15 minutes)..."
-    ./installer.sh 2>&1 | tee ~/wxd-install.log &
+    
+    # Run installer in background, capturing its output
+    ./installer.sh > ~/wxd-install.log 2>&1 &
     INSTALLER_PID=$!
     
-    # Wait for installer to complete
-    wait $INSTALLER_PID
+    # Monitor the log file for completion message
+    echo_info "Monitoring installation progress..."
+    tail -f ~/wxd-install.log &
+    TAIL_PID=$!
     
-    # The installer starts port-forwards that block. Kill them so script can continue.
+    # Wait for "Setup is complete!" message in log
+    while true; do
+        if grep -q "Setup is complete!" ~/wxd-install.log 2>/dev/null; then
+            echo_info "Installation completed successfully!"
+            break
+        fi
+        
+        # Check if installer process is still running
+        if ! kill -0 $INSTALLER_PID 2>/dev/null; then
+            echo_warn "Installer process exited"
+            break
+        fi
+        
+        sleep 5
+    done
+    
+    # Stop tailing the log
+    kill $TAIL_PID 2>/dev/null || true
+    
+    # Kill the port-forwards that the installer started
     echo_info "Stopping installer port-forwards to continue setup..."
-    sleep 5
+    sleep 2
     pkill -f "kubectl port-forward" || true
+    sleep 2
     
     echo_info "watsonx.data installation complete"
 }
