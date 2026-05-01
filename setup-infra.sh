@@ -398,6 +398,8 @@ partitioner: org.apache.cassandra.dht.Murmur3Partitioner
 data_file_directories:
     - ${HCD_INSTALL_DIR}/data/data
 commitlog_directory: ${HCD_INSTALL_DIR}/data/commitlog
+commitlog_sync: periodic
+commitlog_sync_period_in_ms: 10000
 saved_caches_directory: ${HCD_INSTALL_DIR}/data/saved_caches
 seed_provider:
     - class_name: org.apache.cassandra.locator.SimpleSeedProvider
