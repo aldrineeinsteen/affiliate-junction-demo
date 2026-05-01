@@ -53,14 +53,31 @@ main() {
 install_all() {
     echo_info "=== Starting Minimal watsonx.data Installation ==="
     
+    # Check if already installed
+    if kind get clusters 2>/dev/null | grep -q "${KIND_CLUSTER}"; then
+        echo_warn "Kind cluster '${KIND_CLUSTER}' already exists"
+        read -p "Continue anyway? This will skip watsonx.data installation. (yes/no): " confirm
+        if [ "$confirm" != "yes" ]; then
+            echo_info "Installation cancelled"
+            exit 0
+        fi
+        SKIP_WXD_INSTALL=true
+    else
+        SKIP_WXD_INSTALL=false
+    fi
+    
     # Phase 0: Download required files
     download_required_files
     
-    # Phase 1: Prepare minimal configuration
-    prepare_minimal_config
-    
-    # Phase 2: Run watsonx.data installer
-    run_wxd_installer
+    if [ "$SKIP_WXD_INSTALL" = false ]; then
+        # Phase 1: Prepare minimal configuration
+        prepare_minimal_config
+        
+        # Phase 2: Run watsonx.data installer
+        run_wxd_installer
+    else
+        echo_info "Skipping watsonx.data installation (already exists)"
+    fi
     
     # Phase 3: Install HCD as native daemon
     install_hcd_daemon
@@ -289,8 +306,18 @@ run_wxd_installer() {
     # Make installer executable
     chmod +x installer.sh
     
-    # Run installer
-    ./installer.sh 2>&1 | tee ~/wxd-install.log
+    # Run installer (it will start port-forwards in background)
+    echo_info "Running watsonx.data installer (this may take 10-15 minutes)..."
+    ./installer.sh 2>&1 | tee ~/wxd-install.log &
+    INSTALLER_PID=$!
+    
+    # Wait for installer to complete
+    wait $INSTALLER_PID
+    
+    # The installer starts port-forwards that block. Kill them so script can continue.
+    echo_info "Stopping installer port-forwards to continue setup..."
+    sleep 5
+    pkill -f "kubectl port-forward" || true
     
     echo_info "watsonx.data installation complete"
 }
@@ -305,13 +332,24 @@ install_hcd_daemon() {
     # Copy HCD to installation directory
     if [ ! -d "${HCD_INSTALL_DIR}" ]; then
         echo_info "Copying HCD to ${HCD_INSTALL_DIR}..."
+        
+        # Check if source directory exists
+        if [ ! -d "${DOWNLOADS_DIR}/hcd-${HCD_VERSION}" ]; then
+            echo_error "HCD source directory not found at ${DOWNLOADS_DIR}/hcd-${HCD_VERSION}"
+            echo_info "Available directories in ${DOWNLOADS_DIR}:"
+            ls -la "${DOWNLOADS_DIR}/"
+            exit 1
+        fi
+        
         cp -r "${DOWNLOADS_DIR}/hcd-${HCD_VERSION}" "${HCD_INSTALL_DIR}"
     else
         echo_info "HCD already installed at ${HCD_INSTALL_DIR}"
     fi
     
-    # Create data directory
+    # Create required directories
     mkdir -p "${HCD_INSTALL_DIR}/data"
+    mkdir -p "${HCD_INSTALL_DIR}/conf"
+    mkdir -p "${HCD_INSTALL_DIR}/logs"
     
     # Configure HCD
     echo_info "Configuring HCD..."
@@ -657,6 +695,13 @@ show_access_info() {
     # Get VM IP address
     VM_IP=$(hostname -I | awk '{print $1}')
     
+    # Start port forwards in background for remote access
+    echo_info "Starting port forwards for remote access..."
+    nohup kubectl port-forward -n wxd service/lhconsole-ui-svc 6443:443 --address 0.0.0.0 > /tmp/pf-console.log 2>&1 &
+    nohup kubectl port-forward -n wxd service/ibm-lh-minio-svc 9001:9001 --address 0.0.0.0 > /tmp/pf-minio.log 2>&1 &
+    nohup kubectl port-forward -n wxd service/ibm-lh-mds-thrift-svc 8381:8381 --address 0.0.0.0 > /tmp/pf-hive.log 2>&1 &
+    sleep 3
+    
     echo ""
     echo_info "=== Installation Complete ==="
     echo ""
@@ -672,24 +717,13 @@ show_access_info() {
     echo "  Affiliate Junction:  http://localhost:10000"
     echo ""
     echo "Remote Access (From Your Laptop):"
-    echo "  You need to set up SSH port forwarding to access services from your laptop."
+    echo "  Port forwards are now active. Access services directly:"
     echo ""
-    echo "  Option 1: SSH Port Forward (Recommended)"
-    echo "  -----------------------------------------"
-    echo "  Run this command on your laptop:"
-    echo "  ssh -L 10000:localhost:10000 -L 8443:localhost:8443 -L 9001:localhost:9001 root@${VM_IP}"
+    echo "  watsonx.data Console:  https://${VM_IP}:6443"
+    echo "  MinIO Console:         http://${VM_IP}:9001 (admin/password123)"
+    echo "  Affiliate Junction:    http://${VM_IP}:10000"
     echo ""
-    echo "  Then access from your laptop browser:"
-    echo "    Affiliate Junction:  http://localhost:10000"
-    echo "    Presto Console:      https://localhost:8443"
-    echo "    MinIO Console:       http://localhost:9001"
-    echo ""
-    echo "  Option 2: Direct Access (If Firewall Allows)"
-    echo "  --------------------------------------------"
-    echo "  If ports are open in firewall/security groups:"
-    echo "    Affiliate Junction:  http://${VM_IP}:10000"
-    echo "    Presto Console:      https://${VM_IP}:8443"
-    echo "    MinIO Console:       http://${VM_IP}:9001"
+    echo "  Note: Ensure security group allows ports 6443, 9001, 10000"
     echo ""
     echo "HCD Management (On VM):"
     echo "  Service: systemctl status hcd"
@@ -710,6 +744,7 @@ show_access_info() {
     echo "  ./setup-infra.sh teardown                         # Remove all"
     echo ""
     echo "Installation log saved to: ~/wxd-install.log"
+    echo "Port forward logs: /tmp/pf-*.log"
     echo ""
 }
 
