@@ -444,16 +444,46 @@ run_wxd_installer() {
     pkill -f "kubectl port-forward" || true
     sleep 2
     
-    # Configure kubectl to use the Kind cluster
+    # Configure kubectl to use the Kind cluster with retry logic
     echo_info "Configuring kubectl for Kind cluster..."
-    kind export kubeconfig --name "${KIND_CLUSTER}"
+    echo_info "Waiting for Kind cluster to be fully ready..."
     
-    # Verify kubectl is working
-    if kubectl get pods -n "${WXD_NAMESPACE}" &>/dev/null; then
-        echo_info "kubectl configured successfully"
-    else
-        echo_error "kubectl configuration failed"
+    local kubectl_configured=false
+    local max_attempts=30
+    local attempt=0
+    
+    while [ $attempt -lt $max_attempts ]; do
+        attempt=$((attempt + 1))
+        
+        # Try to export kubeconfig
+        if kind export kubeconfig --name "${KIND_CLUSTER}" 2>/dev/null; then
+            # Verify kubectl can actually access the cluster
+            if kubectl get nodes &>/dev/null; then
+                echo_info "✓ kubectl configured successfully (attempt $attempt/$max_attempts)"
+                kubectl_configured=true
+                break
+            fi
+        fi
+        
+        if [ $attempt -lt $max_attempts ]; then
+            echo_info "Attempt $attempt/$max_attempts: Cluster not ready yet, waiting 2 seconds..."
+            sleep 2
+        fi
+    done
+    
+    if [ "$kubectl_configured" = false ]; then
+        echo_error "Failed to configure kubectl after $max_attempts attempts"
+        echo_error "The Kind cluster may not be fully initialized yet"
+        echo_info "You can try manually: kind export kubeconfig --name ${KIND_CLUSTER}"
         exit 1
+    fi
+    
+    # Final verification - check if we can list pods
+    if kubectl get pods -n "${WXD_NAMESPACE}" &>/dev/null; then
+        echo_info "✓ kubectl can access watsonx.data namespace"
+    else
+        echo_warn "kubectl configured but namespace '${WXD_NAMESPACE}' not accessible yet"
+        echo_warn "This may be normal if pods are still starting"
     fi
     
     echo_info "watsonx.data installation complete"
@@ -699,16 +729,40 @@ EOF
     echo_info "Finding Presto pod..."
     
     # Ensure kubectl context is configured (in case watsonx.data was already installed)
-    echo_info "DEBUG: Checking kubectl context..."
+    echo_info "Checking kubectl context..."
     if ! kubectl config current-context &>/dev/null; then
-        echo_info "kubectl context not set, configuring now..."
-        kind export kubeconfig --name "${KIND_CLUSTER}"
-        if ! kubectl config current-context &>/dev/null; then
-            echo_error "Failed to configure kubectl context"
+        echo_info "kubectl context not set, configuring with retry logic..."
+        
+        local context_set=false
+        local max_attempts=15
+        local attempt=0
+        
+        while [ $attempt -lt $max_attempts ]; do
+            attempt=$((attempt + 1))
+            
+            if kind export kubeconfig --name "${KIND_CLUSTER}" 2>/dev/null; then
+                if kubectl config current-context &>/dev/null; then
+                    echo_info "✓ kubectl context configured (attempt $attempt/$max_attempts)"
+                    context_set=true
+                    break
+                fi
+            fi
+            
+            if [ $attempt -lt $max_attempts ]; then
+                echo_info "Attempt $attempt/$max_attempts: Waiting for cluster..."
+                sleep 2
+            fi
+        done
+        
+        if [ "$context_set" = false ]; then
+            echo_error "Failed to configure kubectl context after $max_attempts attempts"
+            echo_info "Try manually: kind export kubeconfig --name ${KIND_CLUSTER}"
             exit 1
         fi
     fi
-    kubectl config current-context
+    
+    current_context=$(kubectl config current-context)
+    echo_info "Using kubectl context: ${current_context}"
     
     echo_info "DEBUG: Listing all pods in namespace ${WXD_NAMESPACE}..."
     kubectl get pods -n "${WXD_NAMESPACE}" -o wide
