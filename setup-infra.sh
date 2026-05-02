@@ -932,7 +932,7 @@ extract_presto_certificate() {
     fi
     
     # If certificate extraction failed, create a self-signed cert or disable verification
-    echo_warning "Could not extract Presto certificate from Kubernetes secrets"
+    echo_warn "Could not extract Presto certificate from Kubernetes secrets"
     echo_info "Adding PRESTO_VERIFY_SSL=false to .env for demo environment"
     
     # Add to .env file
