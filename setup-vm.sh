@@ -413,6 +413,9 @@ if [ -z "${INSTANCE_ID}" ] || [ "${INSTANCE_ID}" == "null" ]; then
     # Get the public key content for cloud-init
     SSH_PUBLIC_KEY=$(cat "${SSH_KEY_PATH}.pub")
     
+    # Debug: Show first 50 chars of SSH key
+    echo_info "SSH Public Key (first 50 chars): ${SSH_PUBLIC_KEY:0:50}..."
+    
     # Create cloud-init user-data to inject SSH key
     # Note: Using 'EOF' (quoted) to prevent variable expansion in heredoc,
     # then manually replacing the SSH key placeholder
@@ -438,29 +441,34 @@ packages:
 
 runcmd:
   - echo "Cloud-init complete" > /root/cloud-init-complete.txt
+  - echo "SSH key from cloud-init:" >> /root/cloud-init-debug.log
+  - cat /root/.ssh/authorized_keys >> /root/cloud-init-debug.log 2>&1 || echo "No authorized_keys file" >> /root/cloud-init-debug.log
 EOF
 )
     
     # Replace SSH key placeholder with actual key
     USER_DATA="${USER_DATA//SSH_KEY_PLACEHOLDER/$SSH_PUBLIC_KEY}"
-
-# Add auto-install commands if flag is set
-if [ "$AUTO_INSTALL" = true ]; then
-    # Remove the closing parenthesis temporarily
-    USER_DATA="${USER_DATA%?}"
     
-    # Append auto-install commands to the USER_DATA heredoc
-    USER_DATA="${USER_DATA}
+    # Add auto-install commands if flag is set
+    if [ "$AUTO_INSTALL" = true ]; then
+        # Remove the closing parenthesis to append more commands
+        USER_DATA="${USER_DATA%?}"
+        
+        # Append auto-install commands to runcmd section (proper YAML indentation)
+        USER_DATA="${USER_DATA}
   - echo \"Starting automated installation...\" >> /root/install.log
   - cd /root
   - git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git >> /root/install.log 2>&1
   - cd affiliate-junction-demo
   - nohup ./setup-infra.sh install >> /root/install.log 2>&1 &
   - echo \"Installation started. Monitor: tail -f /root/install.log\" > /root/auto-install-started.txt
-EOF
 )
 "
-fi
+    fi
+    
+    # Debug: Save user-data to file for inspection
+    echo "${USER_DATA}" > /tmp/cloud-init-user-data.txt
+    echo_info "Cloud-init user-data saved to /tmp/cloud-init-user-data.txt for inspection"
     
     echo_info "Command: ibmcloud is instance-create ${VM_NAME} ${VPC_ID} ${VM_ZONE} ${VM_PROFILE} ${SUBNET_ID} --image ${VM_IMAGE} --keys ${SSH_KEY_ID} --sgs ${SG_ID} --user-data <cloud-init> --resource-group-name ${RESOURCE_GROUP}"
     
