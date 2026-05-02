@@ -402,6 +402,8 @@ packages:
   - curl
   - unzip
   - java-11-openjdk
+  - java-17-openjdk
+  - java-17-openjdk-devel
   - jq
 
 runcmd:
