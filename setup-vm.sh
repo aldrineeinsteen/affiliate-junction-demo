@@ -461,9 +461,11 @@ EOF
   - git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git >> /root/install.log 2>&1
   - cd affiliate-junction-demo
   - nohup ./setup-infra.sh install >> /root/install.log 2>&1 &
-  - echo \"Installation started. Monitor: tail -f /root/install.log\" > /root/auto-install-started.txt
-)
-"
+  - echo \"Installation started. Monitor: tail -f /root/install.log\" > /root/auto-install-started.txt"
+        
+        # Add closing parenthesis back
+        USER_DATA="${USER_DATA}
+)"
     fi
     
     # Debug: Save user-data to file for inspection
