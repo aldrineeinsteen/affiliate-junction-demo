@@ -42,6 +42,12 @@ Complete guide for deploying the Affiliate Junction demo with watsonx.data Devel
 
 ## Quick Start
 
+> **⚠️ IMPORTANT FOR WORKSHOPS**: Always specify your assigned IBM Cloud region using `--region <region-code>`.
+>
+> Common regions: `us-south`, `us-east`, `eu-de`, `eu-gb`, `jp-tok`, `au-syd`
+>
+> Example: `./setup-vm.sh --auto-install --region eu-de`
+
 For experienced users who want to deploy quickly:
 
 ### Option 1: Fully Automated (Recommended)
@@ -52,14 +58,22 @@ git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git
 cd affiliate-junction-demo
 
 # 2. Provision VM with auto-install (90-120 minutes total)
-./setup-vm.sh --auto-install
+# Replace eu-de with your assigned region
+./setup-vm.sh --auto-install --region eu-de
 
 # 3. Monitor installation progress
 # SSH into VM (use IP from previous step)
-ssh -i ~/.ssh/affiliate-junction-key root@<FLOATING_IP>
+ssh -i ~/.ssh/affiliate-junction-demo-key root@<FLOATING_IP>
+
+# Check cloud-init status
 cloud-init status
-systemctl status cloud-final
-tail -f /var/log/cloud-init.log
+
+# Monitor installation log
+tail -f /root/install.log
+
+# Configure kubectl to monitor watsonx.data pods (optional)
+kind export kubeconfig --name kind-wxd
+kubectl get pods -n wxd
 
 # 4. Access web UI when complete
 # Open browser: http://<FLOATING_IP>:10000
@@ -73,10 +87,11 @@ git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git
 cd affiliate-junction-demo
 
 # 2. Provision VM on IBM Cloud
-./setup-vm.sh
+# Replace eu-de with your assigned region
+./setup-vm.sh --region eu-de
 
 # 3. SSH into VM (use IP from previous step)
-ssh -i ~/.ssh/affiliate-junction-key root@<FLOATING_IP>
+ssh -i ~/.ssh/affiliate-junction-demo-key root@<FLOATING_IP>
 
 # 4. Clone repository on VM
 git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git
@@ -105,11 +120,12 @@ git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git
 cd affiliate-junction-demo
 
 # Run VM provisioning with auto-install
-./setup-vm.sh --auto-install
+# Replace eu-de with your assigned region
+./setup-vm.sh --auto-install --region eu-de
 ```
 
 **What it does:**
-- Creates VPC, subnet, and security group
+- Creates VPC, subnet, and security group in specified region
 - Provisions RHEL 9 VM (bx2-8x32 profile)
 - Installs base packages via cloud-init:
   - Python 3.9
@@ -117,19 +133,23 @@ cd affiliate-junction-demo
   - Java 17 (for PySpark)
   - Git, wget, curl, unzip, jq
 - Assigns floating IP for external access
-- Generates SSH key pair
+- Generates SSH key pair (`~/.ssh/affiliate-junction-demo-key`)
 - **Automatically clones repository and starts installation**
 
 **Monitoring auto-install:**
 ```bash
-# SSH into VM
-ssh -i ~/.ssh/affiliate-junction-key root@<FLOATING_IP>
+# SSH into VM (use the IP shown in setup-vm.sh output)
+ssh -i ~/.ssh/affiliate-junction-demo-key root@<FLOATING_IP>
 
 # Monitor installation progress
 tail -f /root/install.log
 
 # Check if auto-install started
 cat /root/auto-install-started.txt
+
+# Configure kubectl to monitor watsonx.data pods (optional)
+kind export kubeconfig --name kind-wxd
+kubectl get pods -n wxd -w
 ```
 
 #### Option B: Manual Installation
@@ -140,7 +160,8 @@ git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git
 cd affiliate-junction-demo
 
 # Run VM provisioning script (without auto-install)
-./setup-vm.sh
+# Replace eu-de with your assigned region
+./setup-vm.sh --region eu-de
 ```
 
 **What it does:**
@@ -169,10 +190,13 @@ cd affiliate-junction-demo
 
 ```bash
 # Use the SSH command from previous step
-ssh -i ~/.ssh/affiliate-junction-key root@<FLOATING_IP>
+ssh -i ~/.ssh/affiliate-junction-demo-key root@<FLOATING_IP>
 
 # Verify cloud-init completed
 cat /root/cloud-init-complete.txt
+
+# If using auto-install, check installation progress
+tail -f /root/install.log
 ```
 
 ---
@@ -444,6 +468,25 @@ sleep 180
 journalctl -u presto_to_hcd -n 20 --no-pager | grep "processed"
 ```
 
+### Issue: kubectl Cannot Connect to Cluster
+
+**Symptom:**
+```
+The connection to the server localhost:8080 was refused
+```
+
+**Solution:**
+```bash
+# Export the Kind cluster kubeconfig
+kind export kubeconfig --name kind-wxd
+
+# Verify kubectl is configured
+kubectl config get-contexts
+
+# Now you can check pods
+kubectl get pods -n wxd
+```
+
 ### Issue: Kubernetes Pods Not Ready
 
 **Symptom:**
@@ -453,6 +496,9 @@ Waiting for pods to be ready... (attempt X/60)
 
 **Solution:**
 ```bash
+# First, configure kubectl (see above)
+kind export kubeconfig --name kind-wxd
+
 # Check pod status
 kubectl get pods -n wxd
 
@@ -463,6 +509,55 @@ kubectl logs -n wxd <pod-name>
 # - Insufficient memory: Increase VM RAM
 # - Image pull errors: Check internet connectivity
 # - Timeout: Wait longer (up to 45 minutes)
+```
+
+### Issue: HCD Service Fails to Start
+
+**Symptom:**
+```
+systemctl status hcd shows "failed" or "activating (auto-restart)"
+```
+
+**Solution:**
+```bash
+# Check if Java 11 is being used
+journalctl -u hcd -n 50 --no-pager | grep -i java
+
+# Verify Java 11 is installed
+ls -la /usr/lib/jvm/ | grep java-11
+
+# If HCD service file is incorrect, update it
+cat > /etc/systemd/system/hcd.service <<'EOF'
+[Unit]
+Description=HCD (Hyperconverged Database) Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/opt/hcd-1.2.5/bin/hcd cassandra -R -f
+ExecStop=/opt/hcd-1.2.5/bin/hcd cassandra-stop
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=100000
+LimitMEMLOCK=infinity
+LimitNPROC=32768
+LimitAS=infinity
+Environment="JAVA_HOME=/usr/lib/jvm/java-11-openjdk"
+Environment="PATH=/usr/lib/jvm/java-11-openjdk/bin:/opt/hcd-1.2.5/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+Environment="CASSANDRA_HOME=/opt/hcd-1.2.5"
+Environment="CASSANDRA_CONF=/opt/hcd-1.2.5/conf"
+WorkingDirectory=/opt/hcd-1.2.5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Reload and restart
+systemctl daemon-reload
+systemctl restart hcd
+systemctl status hcd
 ```
 
 ### Issue: Port Already in Use
