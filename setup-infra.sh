@@ -414,6 +414,18 @@ run_wxd_installer() {
     pkill -f "kubectl port-forward" || true
     sleep 2
     
+    # Configure kubectl to use the Kind cluster
+    echo_info "Configuring kubectl for Kind cluster..."
+    kind export kubeconfig --name "${KIND_CLUSTER}"
+    
+    # Verify kubectl is working
+    if kubectl get pods -n "${WXD_NAMESPACE}" &>/dev/null; then
+        echo_info "kubectl configured successfully"
+    else
+        echo_error "kubectl configuration failed"
+        exit 1
+    fi
+    
     echo_info "watsonx.data installation complete"
 }
 
