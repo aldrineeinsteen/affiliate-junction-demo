@@ -7,7 +7,7 @@ After=generate_traffic.service
 Type=simple
 Environment=PATH=/root/affiliate-junction-demo/.venv/bin:/usr/local/bin:/usr/bin:/bin
 Environment=VIRTUAL_ENV=/root/affiliate-junction-demo/.venv
-Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+Environment=JAVA_HOME=JAVA17_HOME_PLACEHOLDER
 WorkingDirectory=/root/affiliate-junction-demo
 ExecStartPre=/bin/sleep 60
 ExecStart=/root/affiliate-junction-demo/.venv/bin/python /root/affiliate-junction-demo/hcd_to_presto.py

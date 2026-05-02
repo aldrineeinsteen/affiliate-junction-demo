@@ -280,8 +280,14 @@ The `setup-infra.sh` script performs the complete installation.
 # In another terminal, monitor installation
 tail -f ~/wxd-install.log
 
+# Configure kubectl to access Kind cluster
+kind export kubeconfig --name kind-wxd
+
 # Check Kubernetes pods
 kubectl get pods -n wxd
+
+# Watch pods until all are Running
+kubectl get pods -n wxd -w
 
 # Check services
 systemctl status generate_traffic hcd_to_presto presto_to_hcd uvicorn
