@@ -305,6 +305,27 @@ SG_ID=$(ibmcloud is security-groups --output json 2>/dev/null | jq -r ".[] | sel
 
 if [ -n "${SG_ID}" ] && [ "${SG_ID}" != "null" ]; then
     echo_warn "Security group '${SECURITY_GROUP_NAME}' already exists (ID: ${SG_ID})"
+    
+    # Verify required ports are open
+    echo_info "Verifying security group rules..."
+    REQUIRED_PORTS=(22 10000 6443 8381 9001)
+    MISSING_PORTS=()
+    
+    for port in "${REQUIRED_PORTS[@]}"; do
+        if ! ibmcloud is security-group-rules "${SG_ID}" --output json 2>/dev/null | jq -e ".[] | select(.direction==\"inbound\" and .protocol==\"tcp\" and .port_min==${port} and .port_max==${port})" > /dev/null 2>&1; then
+            MISSING_PORTS+=($port)
+        fi
+    done
+    
+    if [ ${#MISSING_PORTS[@]} -gt 0 ]; then
+        echo_warn "Missing security group rules for ports: ${MISSING_PORTS[*]}"
+        echo_info "Adding missing rules..."
+        for port in "${MISSING_PORTS[@]}"; do
+            ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min ${port} --port-max ${port}
+        done
+    else
+        echo_info "All required security group rules are present"
+    fi
 else
     echo_info "Creating security group..."
     SG_ID=$(ibmcloud is security-group-create "${SECURITY_GROUP_NAME}" "${VPC_ID}" --resource-group-name "${RESOURCE_GROUP}" --output json | jq -r '.id')
@@ -416,21 +437,25 @@ packages:
 runcmd:
   - echo "Cloud-init complete" > /root/cloud-init-complete.txt
 EOF
+)
 
 # Add auto-install commands if flag is set
 if [ "$AUTO_INSTALL" = true ]; then
-    USER_DATA="${USER_DATA%EOF*}"  # Remove EOF and closing parenthesis
-    USER_DATA="${USER_DATA}  - echo \"Starting automated installation...\" >> /root/install.log
+    # Remove the closing parenthesis temporarily
+    USER_DATA="${USER_DATA%?}"
+    
+    # Append auto-install commands to the USER_DATA heredoc
+    USER_DATA="${USER_DATA}
+  - echo \"Starting automated installation...\" >> /root/install.log
   - cd /root
   - git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git >> /root/install.log 2>&1
   - cd affiliate-junction-demo
   - nohup ./setup-infra.sh install >> /root/install.log 2>&1 &
   - echo \"Installation started. Monitor: tail -f /root/install.log\" > /root/auto-install-started.txt
-EOF"
+EOF
+)
+"
 fi
-
-USER_DATA="${USER_DATA}
-)"
     
     echo_info "Command: ibmcloud is instance-create ${VM_NAME} ${VPC_ID} ${VM_ZONE} ${VM_PROFILE} ${SUBNET_ID} --image ${VM_IMAGE} --keys ${SSH_KEY_ID} --sgs ${SG_ID} --user-data <cloud-init> --resource-group-name ${RESOURCE_GROUP}"
     
