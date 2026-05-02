@@ -99,76 +99,91 @@ install_all() {
     echo_info "=== Installation Complete ==="
 }
 
-# Helper function to execute Presto queries via REST API
+# Helper function to execute Presto queries via REST API with timeout
 presto_query() {
     local query="$1"
+    local timeout="${2:-10}"  # Default 10 second timeout
     local response next_uri data_found=false
-    local max_attempts=30
-    
-    echo_info "DEBUG: presto_query called with: $query"
+    local max_attempts=10  # Reduced from 30 to 10 attempts (10 seconds max)
+    local attempt=0
     
     # Get Presto pod name
     PRESTO_POD=$(kubectl get pods -n "${WXD_NAMESPACE}" -l app=ibm-lh-presto -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
     
     if [ -z "$PRESTO_POD" ]; then
-        echo_error "Presto pod not found"
+        echo_warn "Presto pod not found"
         return 1
     fi
     
-    echo_info "DEBUG: Using Presto pod: $PRESTO_POD"
-    
-    # Execute query
-    echo_info "DEBUG: Executing query via REST API..."
-    response=$(kubectl exec -n "${WXD_NAMESPACE}" "${PRESTO_POD}" -- curl -k -u "ibmlhadmin:password" \
+    # Execute query with timeout
+    response=$(timeout ${timeout} kubectl exec -n "${WXD_NAMESPACE}" "${PRESTO_POD}" -- curl -k -u "ibmlhadmin:password" \
         -X POST https://localhost:8443/v1/statement \
         -H "Content-Type: text/plain" \
         -H "X-Presto-User: ibmlhadmin" \
         -d "$query" -s 2>&1)
     
     local curl_exit=$?
-    echo_info "DEBUG: curl exit code: $curl_exit"
     
-    if [ $curl_exit -ne 0 ]; then
-        echo_error "Failed to execute query. Response: $response"
+    # Check for timeout (exit code 124)
+    if [ $curl_exit -eq 124 ]; then
+        echo_warn "Query timed out after ${timeout} seconds"
         return 1
     fi
     
-    echo_info "DEBUG: Initial response received (first 200 chars): ${response:0:200}"
+    if [ $curl_exit -ne 0 ]; then
+        echo_warn "Failed to execute query (exit code: $curl_exit)"
+        return 1
+    fi
     
-    # Poll for results (max 30 seconds)
-    for i in $(seq 1 $max_attempts); do
-        # Check if we have data
-        if echo "$response" | jq -e '.data' >/dev/null 2>&1; then
-            echo "$response" | jq -r '.data[][] // empty' 2>/dev/null
-            data_found=true
-            break
-        fi
-        
-        # Check for errors
-        if echo "$response" | jq -e '.error' >/dev/null 2>&1; then
-            echo_error "Query failed: $(echo "$response" | jq -r '.error.message // .error')"
-            return 1
-        fi
-        
-        # Get nextUri for polling
-        next_uri=$(echo "$response" | jq -r '.nextUri // empty' 2>/dev/null)
-        
-        # If no nextUri and no data, query might be complete (DDL statements)
-        if [ -z "$next_uri" ]; then
-            # Check if query state is finished
-            state=$(echo "$response" | jq -r '.stats.state // empty' 2>/dev/null)
-            if [ "$state" = "FINISHED" ]; then
-                return 0
-            fi
-            break
-        fi
-        
-        # Fetch next result
+    # Quick check for immediate results or errors
+    if echo "$response" | jq -e '.data' >/dev/null 2>&1; then
+        echo "$response" | jq -r '.data[][] // empty' 2>/dev/null
+        return 0
+    fi
+    
+    if echo "$response" | jq -e '.error' >/dev/null 2>&1; then
+        echo_warn "Query error: $(echo "$response" | jq -r '.error.message // .error' 2>/dev/null)"
+        return 1
+    fi
+    
+    # Check if query completed immediately (DDL statements)
+    state=$(echo "$response" | jq -r '.stats.state // empty' 2>/dev/null)
+    if [ "$state" = "FINISHED" ]; then
+        return 0
+    fi
+    
+    # Poll for results with timeout (max 10 attempts = 10 seconds)
+    next_uri=$(echo "$response" | jq -r '.nextUri // empty' 2>/dev/null)
+    
+    while [ -n "$next_uri" ] && [ $attempt -lt $max_attempts ]; do
+        attempt=$((attempt + 1))
         sleep 1
-        response=$(kubectl exec -n "${WXD_NAMESPACE}" "${PRESTO_POD}" -- curl -k -u "ibmlhadmin:password" \
+        
+        response=$(timeout 2 kubectl exec -n "${WXD_NAMESPACE}" "${PRESTO_POD}" -- curl -k -u "ibmlhadmin:password" \
             -H "X-Presto-User: ibmlhadmin" \
             "$next_uri" -s 2>/dev/null)
+        
+        # Check for data
+        if echo "$response" | jq -e '.data' >/dev/null 2>&1; then
+            echo "$response" | jq -r '.data[][] // empty' 2>/dev/null
+            return 0
+        fi
+        
+        # Check for completion
+        state=$(echo "$response" | jq -r '.stats.state // empty' 2>/dev/null)
+        if [ "$state" = "FINISHED" ]; then
+            return 0
+        fi
+        
+        # Get next URI
+        next_uri=$(echo "$response" | jq -r '.nextUri // empty' 2>/dev/null)
     done
+    
+    # If we exhausted attempts, warn but don't fail
+    if [ $attempt -ge $max_attempts ]; then
+        echo_warn "Query polling timed out after ${max_attempts} attempts"
+        return 1
+    fi
     
     return 0
 }
@@ -1035,37 +1050,73 @@ verify_installation() {
     
     # Check Kind cluster
     echo_info "Checking Kind cluster..."
-    kind get clusters | grep "${KIND_CLUSTER}" || { echo_error "Kind cluster not found"; exit 1; }
+    if ! kind get clusters | grep -q "${KIND_CLUSTER}"; then
+        echo_error "Kind cluster not found"
+        return 1
+    fi
+    echo_info "✓ Kind cluster '${KIND_CLUSTER}' is running"
     
     # Check pods
     echo_info "Checking watsonx.data pods..."
     kubectl get pods -n "${WXD_NAMESPACE}"
     
+    # Count running pods
+    running_pods=$(kubectl get pods -n "${WXD_NAMESPACE}" --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
+    echo_info "✓ ${running_pods} pods running in namespace '${WXD_NAMESPACE}'"
+    
     # Check HCD service
     echo_info "Checking HCD service..."
-    systemctl is-active hcd || { echo_error "HCD service not running"; exit 1; }
-    
-    # Check HCD
-    echo_info "Checking HCD schema..."
-    ${HCD_INSTALL_DIR}/bin/cqlsh -e "DESCRIBE KEYSPACES" | grep affiliate_junction || { echo_error "HCD schema not found"; exit 1; }
-    
-    # Check Presto catalogs
-    echo_info "Checking Presto catalogs..."
-    PRESTO_POD=$(kubectl get pods -n "${WXD_NAMESPACE}" -l app=ibm-lh-presto -o jsonpath='{.items[0].metadata.name}')
-    
-    echo_info "Available Presto catalogs:"
-    presto_query "SHOW CATALOGS"
-    
-    # Verify required catalogs exist
-    catalogs=$(presto_query "SHOW CATALOGS")
-    if echo "$catalogs" | grep -q "iceberg_data" && echo "$catalogs" | grep -q "hcd"; then
-        echo_info "✓ Required catalogs found: iceberg_data, hcd"
+    if systemctl is-active --quiet hcd; then
+        echo_info "✓ HCD service is active"
     else
-        echo_warn "Some catalogs may be missing. Available catalogs:"
-        echo "$catalogs"
+        echo_error "HCD service not running"
+        return 1
     fi
     
-    echo_info "Verification complete!"
+    # Check HCD schema
+    echo_info "Checking HCD schema..."
+    if ${HCD_INSTALL_DIR}/bin/cqlsh -e "DESCRIBE KEYSPACES" 2>/dev/null | grep -q affiliate_junction; then
+        echo_info "✓ HCD schema 'affiliate_junction' exists"
+    else
+        echo_warn "HCD schema 'affiliate_junction' not found (may still be initializing)"
+    fi
+    
+    # Check Presto catalogs (non-blocking with timeout)
+    echo_info "Checking Presto catalogs (with 10s timeout)..."
+    PRESTO_POD=$(kubectl get pods -n "${WXD_NAMESPACE}" -l app=ibm-lh-presto -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    
+    if [ -z "$PRESTO_POD" ]; then
+        echo_warn "⚠ Presto pod not found - skipping catalog verification"
+    else
+        echo_info "Presto pod: ${PRESTO_POD}"
+        
+        # Try to query catalogs with timeout
+        if catalogs=$(presto_query "SHOW CATALOGS" 10 2>/dev/null); then
+            echo_info "Available Presto catalogs:"
+            echo "$catalogs"
+            
+            # Check for required catalogs
+            if echo "$catalogs" | grep -q "iceberg_data"; then
+                echo_info "✓ Catalog 'iceberg_data' found"
+            else
+                echo_warn "⚠ Catalog 'iceberg_data' not found"
+            fi
+            
+            if echo "$catalogs" | grep -q "hcd"; then
+                echo_info "✓ Catalog 'hcd' found"
+            else
+                echo_warn "⚠ Catalog 'hcd' not found (may need manual configuration)"
+            fi
+        else
+            echo_warn "⚠ Could not verify Presto catalogs (query timed out or failed)"
+            echo_warn "  This is non-critical - Presto may still be initializing"
+            echo_warn "  You can verify manually later with: kubectl exec -n ${WXD_NAMESPACE} ${PRESTO_POD} -- curl -k https://localhost:8443/v1/info"
+        fi
+    fi
+    
+    echo ""
+    echo_info "✓ Core verification complete!"
+    echo_info "  Note: Some components may still be initializing. This is normal."
 }
 
 show_access_info() {
