@@ -661,12 +661,29 @@ EOF
     
     # Find Presto pod
     echo_info "Finding Presto pod..."
-    PRESTO_POD=$(kubectl get pods -n "${WXD_NAMESPACE}" -l app=ibm-lh-presto -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    echo_info "DEBUG: Checking kubectl context..."
+    kubectl config current-context
     
-    if [ -z "$PRESTO_POD" ]; then
-        echo_error "Presto pod not found. Checking all pods:"
-        kubectl get pods -n "${WXD_NAMESPACE}"
-        exit 1
+    echo_info "DEBUG: Listing all pods in namespace ${WXD_NAMESPACE}..."
+    kubectl get pods -n "${WXD_NAMESPACE}" -o wide
+    
+    echo_info "DEBUG: Attempting to find Presto pod with label app=ibm-lh-presto..."
+    PRESTO_POD=$(kubectl get pods -n "${WXD_NAMESPACE}" -l app=ibm-lh-presto -o jsonpath='{.items[0].metadata.name}' 2>&1)
+    KUBECTL_EXIT_CODE=$?
+    
+    echo_info "DEBUG: kubectl exit code: ${KUBECTL_EXIT_CODE}"
+    echo_info "DEBUG: PRESTO_POD value: '${PRESTO_POD}'"
+    
+    if [ -z "$PRESTO_POD" ] || [ $KUBECTL_EXIT_CODE -ne 0 ]; then
+        echo_error "Presto pod not found or kubectl command failed"
+        echo_info "DEBUG: Full pod list with labels:"
+        kubectl get pods -n "${WXD_NAMESPACE}" --show-labels
+        echo_info "DEBUG: Trying alternative label selector (component=presto)..."
+        PRESTO_POD=$(kubectl get pods -n "${WXD_NAMESPACE}" -l component=presto -o jsonpath='{.items[0].metadata.name}' 2>&1)
+        if [ -z "$PRESTO_POD" ]; then
+            echo_error "Still cannot find Presto pod. Exiting."
+            exit 1
+        fi
     fi
     
     echo_info "Found Presto pod: ${PRESTO_POD}"

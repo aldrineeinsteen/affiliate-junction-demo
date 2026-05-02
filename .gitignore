@@ -2,3 +2,7 @@
 .env
 *.sw?
 *.pyc
+
+# Workshop files (not tracked in git)
+WORKSHOP_GUIDE.md
+WORKSHOP_PRESENTATION.md
