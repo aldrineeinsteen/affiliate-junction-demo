@@ -105,6 +105,8 @@ presto_query() {
     local response next_uri data_found=false
     local max_attempts=30
     
+    echo_info "DEBUG: presto_query called with: $query"
+    
     # Get Presto pod name
     PRESTO_POD=$(kubectl get pods -n "${WXD_NAMESPACE}" -l app=ibm-lh-presto -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
     
@@ -113,12 +115,25 @@ presto_query() {
         return 1
     fi
     
+    echo_info "DEBUG: Using Presto pod: $PRESTO_POD"
+    
     # Execute query
+    echo_info "DEBUG: Executing query via REST API..."
     response=$(kubectl exec -n "${WXD_NAMESPACE}" "${PRESTO_POD}" -- curl -k -u "ibmlhadmin:password" \
         -X POST https://localhost:8443/v1/statement \
         -H "Content-Type: text/plain" \
         -H "X-Presto-User: ibmlhadmin" \
-        -d "$query" -s 2>/dev/null)
+        -d "$query" -s 2>&1)
+    
+    local curl_exit=$?
+    echo_info "DEBUG: curl exit code: $curl_exit"
+    
+    if [ $curl_exit -ne 0 ]; then
+        echo_error "Failed to execute query. Response: $response"
+        return 1
+    fi
+    
+    echo_info "DEBUG: Initial response received (first 200 chars): ${response:0:200}"
     
     # Poll for results (max 30 seconds)
     for i in $(seq 1 $max_attempts); do
@@ -730,8 +745,16 @@ init_presto_schema() {
     cd ~/affiliate-junction-demo
     
     echo_info "Verifying Presto catalogs..."
-    presto_query "SHOW CATALOGS"
+    echo_info "DEBUG: About to call presto_query with 'SHOW CATALOGS'"
     
+    if ! presto_query "SHOW CATALOGS"; then
+        echo_error "Failed to verify Presto catalogs"
+        echo_info "DEBUG: Checking if Presto is accessible..."
+        kubectl exec -n "${WXD_NAMESPACE}" "${PRESTO_POD}" -- curl -k https://localhost:8443/v1/info -s | head -20
+        exit 1
+    fi
+    
+    echo_info "DEBUG: Presto catalogs verified successfully"
     echo_info "Creating schemas and tables in Presto..."
     
     # Parse SQL file: remove comments, handle multi-line statements, remove semicolons
