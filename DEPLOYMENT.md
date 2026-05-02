@@ -57,7 +57,9 @@ cd affiliate-junction-demo
 # 3. Monitor installation progress
 # SSH into VM (use IP from previous step)
 ssh -i ~/.ssh/affiliate-junction-key root@<FLOATING_IP>
-tail -f /root/install.log
+cloud-init status
+systemctl status cloud-final
+tail -f /var/log/cloud-init.log
 
 # 4. Access web UI when complete
 # Open browser: http://<FLOATING_IP>:10000
