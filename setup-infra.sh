@@ -572,6 +572,8 @@ LimitNOFILE=100000
 LimitMEMLOCK=infinity
 LimitNPROC=32768
 LimitAS=infinity
+Environment="JAVA_HOME=/usr/lib/jvm/java-11-openjdk"
+Environment="PATH=/usr/lib/jvm/java-11-openjdk/bin:${HCD_INSTALL_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
 Environment="CASSANDRA_HOME=${HCD_INSTALL_DIR}"
 Environment="CASSANDRA_CONF=${HCD_INSTALL_DIR}/conf"
 WorkingDirectory=${HCD_INSTALL_DIR}
