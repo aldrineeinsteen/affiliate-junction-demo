@@ -1000,6 +1000,9 @@ setup_port_forwards() {
     pkill -f "kubectl port-forward" || true
     sleep 2
     
+    # watsonx.data Web Console (UI)
+    nohup kubectl port-forward -n "${WXD_NAMESPACE}" service/lhconsole-ui-svc 9443:443 --address 0.0.0.0 > /tmp/wxd-console-pf.log 2>&1 &
+    
     # Presto
     nohup kubectl port-forward -n "${WXD_NAMESPACE}" service/ibm-lh-presto-svc 8443:8443 --address 0.0.0.0 > /tmp/presto-pf.log 2>&1 &
     
@@ -1011,6 +1014,9 @@ setup_port_forwards() {
     nohup kubectl port-forward -n "${WXD_NAMESPACE}" service/ibm-lh-mds-thrift-svc 9083:8380 --address 0.0.0.0 > /tmp/metastore-pf.log 2>&1 &
     
     echo_info "Port forwards established"
+    echo_info "  - watsonx.data Console: https://localhost:9443"
+    echo_info "  - Presto Console: https://localhost:8443"
+    echo_info "  - MinIO Console: http://localhost:9001"
 }
 
 stop_affiliate_services() {
