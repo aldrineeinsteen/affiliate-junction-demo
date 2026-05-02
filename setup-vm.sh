@@ -417,9 +417,9 @@ if [ -z "${INSTANCE_ID}" ] || [ "${INSTANCE_ID}" == "null" ]; then
     echo_info "SSH Public Key (first 50 chars): ${SSH_PUBLIC_KEY:0:50}..."
     
     # Create cloud-init user-data to inject SSH key
-    # Note: Using 'EOF' (quoted) to prevent variable expansion in heredoc,
-    # then manually replacing the SSH key placeholder
-    USER_DATA=$(cat <<'EOF'
+    # Build the base cloud-init config
+    # Note: read returns non-zero when reaching EOF, so we use || true
+    read -r -d '' USER_DATA <<'EOF' || true
 #cloud-config
 users:
   - name: root
@@ -444,28 +444,21 @@ runcmd:
   - echo "SSH key from cloud-init:" >> /root/cloud-init-debug.log
   - cat /root/.ssh/authorized_keys >> /root/cloud-init-debug.log 2>&1 || echo "No authorized_keys file" >> /root/cloud-init-debug.log
 EOF
-)
     
     # Replace SSH key placeholder with actual key
     USER_DATA="${USER_DATA//SSH_KEY_PLACEHOLDER/$SSH_PUBLIC_KEY}"
     
     # Add auto-install commands if flag is set
     if [ "$AUTO_INSTALL" = true ]; then
-        # Remove the closing parenthesis to append more commands
-        USER_DATA="${USER_DATA%?}"
-        
         # Append auto-install commands to runcmd section (proper YAML indentation)
+        # Note: The last line must be quoted to prevent YAML from parsing the colon as a key-value separator
         USER_DATA="${USER_DATA}
   - echo \"Starting automated installation...\" >> /root/install.log
   - cd /root
   - git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git >> /root/install.log 2>&1
   - cd affiliate-junction-demo
   - nohup ./setup-infra.sh install >> /root/install.log 2>&1 &
-  - echo \"Installation started. Monitor: tail -f /root/install.log\" > /root/auto-install-started.txt"
-        
-        # Add closing parenthesis back
-        USER_DATA="${USER_DATA}
-)"
+  - 'echo \"Installation started. Monitor with: tail -f /root/install.log\" > /root/auto-install-started.txt'"
     fi
     
     # Debug: Save user-data to file for inspection
