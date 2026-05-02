@@ -473,6 +473,10 @@ install_hcd_daemon() {
     mkdir -p "${HCD_INSTALL_DIR}/conf"
     mkdir -p "${HCD_INSTALL_DIR}/logs"
     
+    # Get VM IP address for HCD configuration
+    VM_IP=$(hostname -I | awk '{print $1}')
+    echo_info "Configuring HCD to listen on VM IP: ${VM_IP}"
+    
     # Configure HCD
     echo_info "Configuring HCD..."
     cat > "${HCD_INSTALL_DIR}/conf/cassandra.yaml" <<EOF
@@ -502,7 +506,7 @@ saved_caches_directory: ${HCD_INSTALL_DIR}/data/saved_caches
 seed_provider:
     - class_name: org.apache.cassandra.locator.SimpleSeedProvider
       parameters:
-          - seeds: "127.0.0.1"
+          - seeds: "${VM_IP}"
 concurrent_reads: 32
 concurrent_writes: 32
 concurrent_counter_writes: 32
@@ -514,9 +518,11 @@ trickle_fsync: false
 trickle_fsync_interval_in_kb: 10240
 storage_port: 7000
 ssl_storage_port: 7001
-listen_address: localhost
+listen_address: ${VM_IP}
 start_native_transport: true
 native_transport_port: 9042
+rpc_address: 0.0.0.0
+broadcast_rpc_address: ${VM_IP}
 incremental_backups: false
 snapshot_before_compaction: false
 auto_snapshot: true
