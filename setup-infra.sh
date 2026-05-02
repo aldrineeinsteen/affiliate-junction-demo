@@ -661,7 +661,17 @@ EOF
     
     # Find Presto pod
     echo_info "Finding Presto pod..."
+    
+    # Ensure kubectl context is configured (in case watsonx.data was already installed)
     echo_info "DEBUG: Checking kubectl context..."
+    if ! kubectl config current-context &>/dev/null; then
+        echo_info "kubectl context not set, configuring now..."
+        kind export kubeconfig --name "${KIND_CLUSTER}"
+        if ! kubectl config current-context &>/dev/null; then
+            echo_error "Failed to configure kubectl context"
+            exit 1
+        fi
+    fi
     kubectl config current-context
     
     echo_info "DEBUG: Listing all pods in namespace ${WXD_NAMESPACE}..."
