@@ -44,6 +44,27 @@ Complete guide for deploying the Affiliate Junction demo with watsonx.data Devel
 
 For experienced users who want to deploy quickly:
 
+### Option 1: Fully Automated (Recommended)
+
+```bash
+# 1. Clone repository
+git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git
+cd affiliate-junction-demo
+
+# 2. Provision VM with auto-install (90-120 minutes total)
+./setup-vm.sh --auto-install
+
+# 3. Monitor installation progress
+# SSH into VM (use IP from previous step)
+ssh -i ~/.ssh/affiliate-junction-key root@<FLOATING_IP>
+tail -f /root/install.log
+
+# 4. Access web UI when complete
+# Open browser: http://<FLOATING_IP>:10000
+```
+
+### Option 2: Manual Installation
+
 ```bash
 # 1. Clone repository
 git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git
@@ -60,7 +81,7 @@ git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git
 cd affiliate-junction-demo
 
 # 5. Run automated installation (60-90 minutes)
-./setup-infra.sh
+./setup-infra.sh install
 
 # 6. Access web UI
 # Open browser: http://<FLOATING_IP>:10000
@@ -74,12 +95,49 @@ cd affiliate-junction-demo
 
 The `setup-vm.sh` script automates VM provisioning on IBM Cloud VPC.
 
+#### Option A: With Auto-Install (Recommended)
+
 ```bash
 # Clone the repository
 git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git
 cd affiliate-junction-demo
 
-# Run VM provisioning script
+# Run VM provisioning with auto-install
+./setup-vm.sh --auto-install
+```
+
+**What it does:**
+- Creates VPC, subnet, and security group
+- Provisions RHEL 9 VM (bx2-8x32 profile)
+- Installs base packages via cloud-init:
+  - Python 3.9
+  - Java 11 (for HCD)
+  - Java 17 (for PySpark)
+  - Git, wget, curl, unzip, jq
+- Assigns floating IP for external access
+- Generates SSH key pair
+- **Automatically clones repository and starts installation**
+
+**Monitoring auto-install:**
+```bash
+# SSH into VM
+ssh -i ~/.ssh/affiliate-junction-key root@<FLOATING_IP>
+
+# Monitor installation progress
+tail -f /root/install.log
+
+# Check if auto-install started
+cat /root/auto-install-started.txt
+```
+
+#### Option B: Manual Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git
+cd affiliate-junction-demo
+
+# Run VM provisioning script (without auto-install)
 ./setup-vm.sh
 ```
 

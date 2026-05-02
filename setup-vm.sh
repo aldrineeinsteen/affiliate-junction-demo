@@ -5,9 +5,14 @@ set -e  # Exit on error
 # Parse command-line arguments
 TEARDOWN=false
 FORCE=false
+AUTO_INSTALL=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --auto-install)
+            AUTO_INSTALL=true
+            shift
+            ;;
         --region)
             VM_REGION="$2"
             shift 2
@@ -50,6 +55,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --profile PROFILE            VM profile (default: bx2-8x32)"
             echo "  --resource-group GROUP       Resource group (default: Default)"
             echo "  --image IMAGE                OS image (default: auto-detect)"
+            echo "  --auto-install               Automatically run setup-infra.sh after VM creation"
             echo "  --teardown                   Delete all resources (VM, floating IP, security group, etc.)"
             echo "  --force                      Force recreate VM if it exists"
             echo "  --help, -h                   Show this help message"
@@ -57,6 +63,7 @@ while [[ $# -gt 0 ]]; do
             echo "Examples:"
             echo "  $0 --region eu-de --zone eu-de-1"
             echo "  $0 --name my-vm --profile bx2-4x16"
+            echo "  $0 --auto-install            # Fully automated deployment"
             echo "  $0 --force --region eu-de    # Recreate VM with new settings"
             echo "  $0 --teardown --region eu-de # Delete all resources"
             echo "  VM_REGION=eu-de $0"
@@ -409,7 +416,21 @@ packages:
 runcmd:
   - echo "Cloud-init complete" > /root/cloud-init-complete.txt
 EOF
-)
+
+# Add auto-install commands if flag is set
+if [ "$AUTO_INSTALL" = true ]; then
+    USER_DATA="${USER_DATA%EOF*}"  # Remove EOF and closing parenthesis
+    USER_DATA="${USER_DATA}  - echo \"Starting automated installation...\" >> /root/install.log
+  - cd /root
+  - git clone https://github.com/aldrineeinsteen/affiliate-junction-demo.git >> /root/install.log 2>&1
+  - cd affiliate-junction-demo
+  - nohup ./setup-infra.sh install >> /root/install.log 2>&1 &
+  - echo \"Installation started. Monitor: tail -f /root/install.log\" > /root/auto-install-started.txt
+EOF"
+fi
+
+USER_DATA="${USER_DATA}
+)"
     
     echo_info "Command: ibmcloud is instance-create ${VM_NAME} ${VPC_ID} ${VM_ZONE} ${VM_PROFILE} ${SUBNET_ID} --image ${VM_IMAGE} --keys ${SSH_KEY_ID} --sgs ${SG_ID} --user-data <cloud-init> --resource-group-name ${RESOURCE_GROUP}"
     
