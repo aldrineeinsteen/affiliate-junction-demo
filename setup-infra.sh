@@ -727,8 +727,22 @@ EOF
     echo_info "Waiting for Presto to restart..."
     kubectl rollout status deployment/ibm-lh-presto -n "${WXD_NAMESPACE}" --timeout=300s
     
-    # Wait a bit more for Presto to fully initialize
-    sleep 10
+    # Wait for Presto to fully initialize after restart
+    echo_info "Waiting for Presto to be fully ready..."
+    sleep 15
+    
+    # Wait for Presto pod to be ready
+    for i in {1..30}; do
+        PRESTO_POD=$(kubectl get pods -n "${WXD_NAMESPACE}" -l app=ibm-lh-presto -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        if [ -n "$PRESTO_POD" ]; then
+            if kubectl exec -n "${WXD_NAMESPACE}" "${PRESTO_POD}" -- curl -k -s https://localhost:8443/v1/info &>/dev/null; then
+                echo_info "Presto is ready and responding"
+                break
+            fi
+        fi
+        echo_info "Waiting for Presto to be ready... ($i/30)"
+        sleep 5
+    done
     
     echo_info "Presto HCD catalog configured"
 }
@@ -743,6 +757,15 @@ init_presto_schema() {
     fi
     
     cd ~/affiliate-junction-demo
+    
+    # Ensure we have the latest Presto pod name after restart
+    echo_info "Getting current Presto pod name..."
+    PRESTO_POD=$(kubectl get pods -n "${WXD_NAMESPACE}" -l app=ibm-lh-presto -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [ -z "$PRESTO_POD" ]; then
+        echo_error "Presto pod not found after restart"
+        exit 1
+    fi
+    echo_info "Using Presto pod: ${PRESTO_POD}"
     
     echo_info "Verifying Presto catalogs..."
     echo_info "DEBUG: About to call presto_query with 'SHOW CATALOGS'"
