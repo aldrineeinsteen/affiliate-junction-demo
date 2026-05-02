@@ -414,12 +414,14 @@ if [ -z "${INSTANCE_ID}" ] || [ "${INSTANCE_ID}" == "null" ]; then
     SSH_PUBLIC_KEY=$(cat "${SSH_KEY_PATH}.pub")
     
     # Create cloud-init user-data to inject SSH key
-    USER_DATA=$(cat <<EOF
+    # Note: Using 'EOF' (quoted) to prevent variable expansion in heredoc,
+    # then manually replacing the SSH key placeholder
+    USER_DATA=$(cat <<'EOF'
 #cloud-config
 users:
   - name: root
     ssh_authorized_keys:
-      - ${SSH_PUBLIC_KEY}
+      - SSH_KEY_PLACEHOLDER
 
 packages:
   - git
@@ -438,6 +440,9 @@ runcmd:
   - echo "Cloud-init complete" > /root/cloud-init-complete.txt
 EOF
 )
+    
+    # Replace SSH key placeholder with actual key
+    USER_DATA="${USER_DATA//SSH_KEY_PLACEHOLDER/$SSH_PUBLIC_KEY}"
 
 # Add auto-install commands if flag is set
 if [ "$AUTO_INSTALL" = true ]; then
