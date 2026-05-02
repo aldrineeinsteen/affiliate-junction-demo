@@ -25,7 +25,7 @@ HCD_KEYSPACE=affiliate_junction
 HCD_USER=cassandra
 HCD_PASSWD=cassandra
 
-
+# Presto Configuration
 # From /certs/passwords
 PRESTO_HOST=ibm-lh-presto-svc
 PRESTO_PORT=8443
@@ -33,4 +33,13 @@ PRESTO_USER=ibmlhadmin
 PRESTO_PASSWD=password
 PRESTO_CATALOG=iceberg_data
 PRESTO_SCHEMA=affiliate_junction
+
+# SSL Configuration for Presto
+# Set to 'false' to disable SSL verification (useful for demo/dev environments without certificates)
+# Set to 'true' to enable SSL verification (production)
+PRESTO_VERIFY_SSL=false
+
+# Optional: Custom certificate path (only used if PRESTO_VERIFY_SSL=true)
+# PRESTO_CERT_PATH=/certs/presto.crt
+
 

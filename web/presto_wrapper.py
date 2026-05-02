@@ -168,7 +168,7 @@ class PrestoQueryWrapper:
     
     def _connect_to_presto(self):
         """Establish connection to Presto"""
-        try:           
+        try:
             connection = prestodb.dbapi.connect(
                 host=os.getenv('PRESTO_HOST'),
                 port=int(os.getenv('PRESTO_PORT')),
@@ -177,11 +177,27 @@ class PrestoQueryWrapper:
                 schema=os.getenv('PRESTO_SCHEMA'),
                 http_scheme='https',
                 auth=prestodb.auth.BasicAuthentication(
-                    os.getenv('PRESTO_USER'), 
+                    os.getenv('PRESTO_USER'),
                     os.getenv('PRESTO_PASSWD')
                 )
             )
-            connection._http_session.verify = "/certs/presto.crt"
+            
+            # Handle SSL verification based on environment variable
+            verify_ssl = os.getenv('PRESTO_VERIFY_SSL', 'true').lower()
+            if verify_ssl == 'false':
+                # Disable SSL verification for demo environments
+                connection._http_session.verify = False
+                logger.warning("SSL verification disabled for Presto connection (PRESTO_VERIFY_SSL=false)")
+            else:
+                # Use certificate file if available
+                cert_path = os.getenv('PRESTO_CERT_PATH', '/certs/presto.crt')
+                if os.path.exists(cert_path):
+                    connection._http_session.verify = cert_path
+                    logger.info(f"Using Presto certificate: {cert_path}")
+                else:
+                    # Fall back to system certificates
+                    connection._http_session.verify = True
+                    logger.warning(f"Certificate not found at {cert_path}, using system certificates")
             
             logger.info(f"Connected to Presto at {os.getenv('PRESTO_HOST')}:{os.getenv('PRESTO_PORT')}")
             return connection
