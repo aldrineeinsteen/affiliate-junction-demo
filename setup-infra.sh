@@ -1069,8 +1069,37 @@ verify_installation() {
 }
 
 show_access_info() {
-    # Get VM IP address
+    # Get VM private IP address
     VM_IP=$(hostname -I | awk '{print $1}')
+    
+    # Try to detect public/floating IP
+    PUBLIC_IP=""
+    
+    # Method 1: Use external service (most reliable for IBM Cloud VMs)
+    if command -v curl &> /dev/null; then
+        PUBLIC_IP=$(curl -s --connect-timeout 5 ifconfig.me 2>/dev/null || echo "")
+    fi
+    
+    # Method 2: Try IBM Cloud metadata service (may not work on all VMs)
+    if [ -z "$PUBLIC_IP" ]; then
+        PUBLIC_IP=$(curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || echo "")
+    fi
+    
+    # Method 3: Try ip route (usually returns private IP, but worth trying)
+    if [ -z "$PUBLIC_IP" ]; then
+        ROUTE_IP=$(ip route get 8.8.8.8 2>/dev/null | awk '{print $7; exit}')
+        # Only use if different from private IP
+        if [ -n "$ROUTE_IP" ] && [ "$ROUTE_IP" != "$VM_IP" ]; then
+            PUBLIC_IP="$ROUTE_IP"
+        fi
+    fi
+    
+    # Fallback: Use placeholder if all methods failed
+    if [ -z "$PUBLIC_IP" ] || [ "$PUBLIC_IP" == "$VM_IP" ]; then
+        PUBLIC_IP="<YOUR_PUBLIC_IP>"
+        echo_warn "Could not auto-detect public IP. Using placeholder."
+        echo_warn "Replace <YOUR_PUBLIC_IP> with your actual floating IP in the URLs below."
+    fi
     
     # Start port forwards in background for remote access
     echo_info "Starting port forwards for remote access..."
@@ -1083,7 +1112,8 @@ show_access_info() {
     echo_info "=== Installation Complete ==="
     echo ""
     echo "VM Information:"
-    echo "  VM IP Address:       ${VM_IP}"
+    echo "  Private IP Address:  ${VM_IP}"
+    echo "  Public IP Address:   ${PUBLIC_IP}"
     echo "  Hostname:            $(hostname)"
     echo ""
     echo "Component Access (On VM - localhost):"
@@ -1101,12 +1131,12 @@ show_access_info() {
     echo ""
     printf "  %-30s %-40s %-15s\n" "SERVICE" "URL" "CREDENTIALS"
     echo "  ─────────────────────────────────────────────────────────────────────────────"
-    printf "  %-30s %-40s %-15s\n" "watsonx.data Console" "https://${VM_IP}:9443" "ibmlhadmin/password"
-    printf "  %-30s %-40s %-15s\n" "Presto Console" "https://${VM_IP}:8443" "ibmlhadmin/password"
-    printf "  %-30s %-40s %-15s\n" "MinIO Console" "http://${VM_IP}:9001" "admin/password123"
-    printf "  %-30s %-40s %-15s\n" "MinIO API" "http://${VM_IP}:9000" "admin/password123"
-    printf "  %-30s %-40s %-15s\n" "Hive Metastore Thrift" "thrift://${VM_IP}:9083" "N/A"
-    printf "  %-30s %-40s %-15s\n" "Affiliate Junction UI" "http://${VM_IP}:10000" "watsonx/watsonx.data"
+    printf "  %-30s %-40s %-15s\n" "watsonx.data Console" "https://${PUBLIC_IP}:9443" "ibmlhadmin/password"
+    printf "  %-30s %-40s %-15s\n" "Presto Console" "https://${PUBLIC_IP}:8443" "ibmlhadmin/password"
+    printf "  %-30s %-40s %-15s\n" "MinIO Console" "http://${PUBLIC_IP}:9001" "admin/password123"
+    printf "  %-30s %-40s %-15s\n" "MinIO API" "http://${PUBLIC_IP}:9000" "admin/password123"
+    printf "  %-30s %-40s %-15s\n" "Hive Metastore Thrift" "thrift://${PUBLIC_IP}:9083" "N/A"
+    printf "  %-30s %-40s %-15s\n" "Affiliate Junction UI" "http://${PUBLIC_IP}:10000" "watsonx/watsonx.data"
     echo ""
     echo "  Note: All ports are configured in the security group automatically"
     echo "        If using setup-vm.sh, ports 8443, 9000, 9001, 9083, 9443, 10000 are open"
