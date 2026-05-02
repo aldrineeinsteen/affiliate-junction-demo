@@ -557,14 +557,14 @@ EOF
     echo_info "Creating systemd service..."
     
     # Find the actual Java 11 installation path
-    JAVA11_HOME=$(dirname $(dirname $(alternatives --display java | grep "family java-11" | head -1 | awk '{print $1}')))
+    local DETECTED_JAVA11_HOME=$(dirname $(dirname $(alternatives --display java | grep "family java-11" | head -1 | awk '{print $1}')))
     
-    if [ -z "$JAVA11_HOME" ] || [ ! -d "$JAVA11_HOME" ]; then
+    if [ -z "$DETECTED_JAVA11_HOME" ] || [ ! -d "$DETECTED_JAVA11_HOME" ]; then
         echo_error "Java 11 not found. Please install java-11-openjdk"
         exit 1
     fi
     
-    echo_info "Using Java 11 from: ${JAVA11_HOME}"
+    echo_info "Using Java 11 from: ${DETECTED_JAVA11_HOME}"
     
     cat > /etc/systemd/system/hcd.service <<EOF
 [Unit]
@@ -583,8 +583,8 @@ LimitNOFILE=100000
 LimitMEMLOCK=infinity
 LimitNPROC=32768
 LimitAS=infinity
-Environment="JAVA_HOME=${JAVA11_HOME}"
-Environment="PATH=${JAVA11_HOME}/bin:${HCD_INSTALL_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+Environment="JAVA_HOME=${DETECTED_JAVA11_HOME}"
+Environment="PATH=${DETECTED_JAVA11_HOME}/bin:${HCD_INSTALL_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
 Environment="CASSANDRA_HOME=${HCD_INSTALL_DIR}"
 Environment="CASSANDRA_CONF=${HCD_INSTALL_DIR}/conf"
 WorkingDirectory=${HCD_INSTALL_DIR}
@@ -794,19 +794,19 @@ update_affiliate_junction() {
     VM_IP=$(hostname -I | awk '{print $1}')
     
     # Detect Java 17 path for PySpark services
-    JAVA17_HOME=$(dirname $(dirname $(alternatives --display java | grep "family java-17" | head -1 | awk '{print $1}')))
+    local DETECTED_JAVA17_HOME=$(dirname $(dirname $(alternatives --display java | grep "family java-17" | head -1 | awk '{print $1}')))
     
-    if [ -z "$JAVA17_HOME" ] || [ ! -d "$JAVA17_HOME" ]; then
+    if [ -z "$DETECTED_JAVA17_HOME" ] || [ ! -d "$DETECTED_JAVA17_HOME" ]; then
         echo_error "Java 17 not found. Please install java-17-openjdk"
         exit 1
     fi
     
-    echo_info "Using Java 17 from: ${JAVA17_HOME}"
+    echo_info "Using Java 17 from: ${DETECTED_JAVA17_HOME}"
     
     # Update service files with correct Java 17 path
     echo_info "Updating service files with Java paths..."
-    sed -i "s|JAVA17_HOME_PLACEHOLDER|${JAVA17_HOME}|g" hcd_to_presto.service
-    sed -i "s|JAVA17_HOME_PLACEHOLDER|${JAVA17_HOME}|g" presto_to_hcd.service
+    sed -i "s|JAVA17_HOME_PLACEHOLDER|${DETECTED_JAVA17_HOME}|g" hcd_to_presto.service
+    sed -i "s|JAVA17_HOME_PLACEHOLDER|${DETECTED_JAVA17_HOME}|g" presto_to_hcd.service
     
     # Update .env with watsonx.data configuration
     cat > .env <<EOF
