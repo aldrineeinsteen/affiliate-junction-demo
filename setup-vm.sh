@@ -308,7 +308,10 @@ if [ -n "${SG_ID}" ] && [ "${SG_ID}" != "null" ]; then
     
     # Verify required ports are open
     echo_info "Verifying security group rules..."
-    REQUIRED_PORTS=(22 10000 6443 8381 9001)
+    # All ports used by the application:
+    # 22: SSH, 8443: Presto Console, 9000: MinIO API, 9001: MinIO Console
+    # 9083: Hive Metastore, 9443: watsonx.data Console, 10000: Affiliate Junction UI
+    REQUIRED_PORTS=(22 8443 9000 9001 9083 9443 10000)
     MISSING_PORTS=()
     
     for port in "${REQUIRED_PORTS[@]}"; do
@@ -330,13 +333,15 @@ else
     echo_info "Creating security group..."
     SG_ID=$(ibmcloud is security-group-create "${SECURITY_GROUP_NAME}" "${VPC_ID}" --resource-group-name "${RESOURCE_GROUP}" --output json | jq -r '.id')
     
-    # Add rules for SSH (22), Affiliate Junction (10000), and watsonx.data ports (6443, 8381, 9001)
-    echo_info "Adding security group rules..."
-    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 22 --port-max 22
-    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 10000 --port-max 10000
-    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 6443 --port-max 6443
-    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 8381 --port-max 8381
-    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 9001 --port-max 9001
+    # Add rules for all application ports
+    echo_info "Adding security group rules for all application ports..."
+    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 22 --port-max 22      # SSH
+    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 8443 --port-max 8443  # Presto Console
+    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 9000 --port-max 9000  # MinIO API
+    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 9001 --port-max 9001  # MinIO Console
+    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 9083 --port-max 9083  # Hive Metastore
+    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 9443 --port-max 9443  # watsonx.data Console
+    ibmcloud is security-group-rule-add "${SG_ID}" inbound tcp --port-min 10000 --port-max 10000 # Affiliate Junction UI
     ibmcloud is security-group-rule-add "${SG_ID}" outbound all
     echo_info "Security group created with ID: ${SG_ID}"
 fi
