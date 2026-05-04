@@ -1,0 +1,15 @@
+[Unit]
+Description=Presto Port Forward (8443)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/kubectl port-forward -n wxd svc/ibm-lh-presto-svc 8443:8443 --address=0.0.0.0
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

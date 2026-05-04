@@ -23,6 +23,9 @@ This project also includes a WUI with views application to a number of distinct 
 
 ### Additional Documentation
 - [Demo Script](DEMO_SCRIPT.md)
+- [Deployment Guide](DEPLOYMENT.md)
+- [Services Documentation](SERVICES.md)
+- [Port Forwarding Setup](PORT_FORWARDS.md)
 - [Techzone Collection](https://techzone.ibm.com/collection/watsonxdata-data-labs-demos/journey-affiliate-junction)
 - [Data Labs WUI Framework](https://github.ibm.com/Data-Labs/datalabs-wui-framework)
 
@@ -108,8 +111,7 @@ Dive into the historical journey of any specific conversion.  We by showing the 
 
 Expanding any of the accordion elements generates a Presto query that shows the entire timeline from first impression to conversion:
 
-<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/47312bec-270e-4c34-a1bb-9121e0d85e80">
-
+![Timeline of a conversion](images/timeline.png)
 
 #### Fraud Detection Dashboard
 **Route:** `/fraud`
@@ -124,12 +126,11 @@ Demonstrates complex analytical capabilities enabled by watsonx.data's federated
 
 This page loads in two stages.  The table is first generated with data from a fast Presto query against the HCD datasource:
 
-<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/837f79de-7ed7-45bf-9549-e1f66fa13087">
+![Fraud Detection Dashboard](images/fraud.png)
 
 The page is then refined by looking at all historical information using a federated HCD/Iceberg query via Presto:
 
-<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/457a86c0-a47a-40b4-b8eb-045b69a92efa">
-
+![Fraud Historical Journey](images/fraud-historical.png)
 
 
 #### Services Administration
@@ -143,15 +144,15 @@ System administration interface for monitoring the data pipeline:
 
 Provides visibility into the backend ETL processes and dual-write architecture maintenance.  There are five such services.  The charts show useful information detailing the data volume and associated timing:
 
-<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/e63bf795-3bd0-4870-9afd-220db0cb73a3">
+![Services Admin](images/service-health.png)
 
 All queries associated with the services themselves are also captured.  These queries are visible from within the query discovery slider:
 
-<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/be775619-ed1c-4655-96e5-ea46d3c8bdc7">
+![Service Batch Insert](images/service-batch-insert.png)
 
 Some services have tunables that can be dynamically changed from their defaults from within this screen.  Changes take affect within a minute:
 
-<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/db6fe4df-eb20-4885-89d4-606915c39bf9">
+![Service Config ](images/service-config.png)
 
 
 
@@ -228,11 +229,11 @@ ORDER BY predicted_conversions DESC;
 
 The open source Presto console is another good window into the activity occuring within wx.d.  Since all ETL activities occurs every minute, you will typically see active queries and statistics showing usage:
 
-<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/0756c8e5-2215-4219-9b97-09143cb483dd">
+![Presto](images/presto.png)
 
 The console also includes a SQL interface to enter your own queries.  This may be an easier web-based location to explore queries that the wx.d built-in notebook feature.
 
-<img width="1522" alt="image" src="https://github.ibm.com/Data-Labs/affiliate-junction-demo/assets/521800/f326419e-60a7-4faa-9c16-47e810f2849e">
+![Presto](images/presto-sql.png)
 
 
 
