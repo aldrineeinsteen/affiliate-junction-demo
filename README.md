@@ -22,10 +22,11 @@ This project also includes a WUI with views application to a number of distinct 
 - [Troubleshooting](#troubleshooting)
 
 ### Additional Documentation
-- [Demo Script](DEMO_SCRIPT.md)
-- [Deployment Guide](DEPLOYMENT.md)
-- [Services Documentation](SERVICES.md)
-- [Port Forwarding Setup](PORT_FORWARDS.md)
+- [Architecture Overview](ARCHITECTURE.md) - Complete system architecture and design
+- [Demo Script](DEMO_SCRIPT.md) - Step-by-step demo walkthrough
+- [Deployment Guide](DEPLOYMENT.md) - Installation and setup instructions
+- [Services Documentation](SERVICES.md) - Detailed service information
+- [Port Forwarding Setup](PORT_FORWARDS.md) - Persistent port forwarding guide
 - [Techzone Collection](https://techzone.ibm.com/collection/watsonxdata-data-labs-demos/journey-affiliate-junction)
 - [Data Labs WUI Framework](https://github.ibm.com/Data-Labs/datalabs-wui-framework)
 
