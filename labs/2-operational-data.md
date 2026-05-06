@@ -255,7 +255,7 @@ SELECT
     bucket,
     COUNT(*) as impression_count
 FROM hcd.affiliate_junction.impressions_by_minute
-WHERE bucket_date >= CURRENT_TIMESTAMP - INTERVAL '1'
+WHERE bucket_date >= CURRENT_TIMESTAMP - INTERVAL '1' MINUTE
 GROUP BY bucket;
 ```
 
