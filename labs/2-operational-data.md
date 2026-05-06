@@ -471,13 +471,15 @@ USE affiliate_junction;
 ```sql
 -- impressions_by_minute uses TIMEUUID for ts
 SELECT 
-    dateOf(ts) as timestamp,
+    bucket_date,
+    bucket,
+    ts,
     publishers_id,
     advertisers_id
-FROM impressions_by_minute
-WHERE bucket_date = '2026-05-06 11:50:00'
-  AND bucket = 0
-LIMIT 10;
+FROM hcd.affiliate_junction.impressions_by_minute
+WHERE bucket_date >= CURRENT_TIMESTAMP - INTERVAL '10' MINUTE
+ORDER BY bucket_date DESC, bucket DESC, ts DESC
+LIMIT 20;
 ```
 
 **Explanation:**
