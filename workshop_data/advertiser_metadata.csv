@@ -1,0 +1,11 @@
+advertiser_id,advertiser_name,industry,budget_tier,target_cpa,active_campaigns
+adv_001,TechGear Inc,Electronics,High,25.00,5
+adv_002,StyleHub,Fashion,Medium,18.50,3
+adv_003,GameStore Pro,Gaming,High,30.00,4
+adv_004,FoodieBox,Food Delivery,Medium,15.00,2
+adv_005,TravelDeals,Travel,High,45.00,6
+adv_006,FinanceApp,Financial Services,High,50.00,4
+adv_007,SportsPro,Sports Equipment,Medium,20.00,3
+adv_008,HomeDecor,Home Goods,Low,12.00,2
+adv_009,AutoParts Plus,Automotive,Medium,22.00,3
+adv_010,HealthSupplements,Health,Medium,28.00,4

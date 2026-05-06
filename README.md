@@ -22,11 +22,24 @@ This project also includes a WUI with views application to a number of distinct 
 - [Troubleshooting](#troubleshooting)
 
 ### Additional Documentation
+
+**Hands-On Labs (Self-Guided):**
+- [Labs Overview](labs/README.md) - Complete 4-lab workshop (2.5-3 hours)
+  - [Lab 1: Real-Time Data Ingestion](labs/1-real-time-data.md) - Create tables, insert data, monitor flow
+  - [Lab 2: Operational Data in HCD](labs/2-operational-data.md) - Query patterns, bucketing, performance
+  - [Lab 3: Transformation (ETL)](labs/3-transformation-etl.md) - PySpark ETL, Iceberg tables, aggregations
+  - [Lab 4: Query Federation](labs/4-query-federation.md) - Federated queries, CSV import, multi-source analytics
+
+**Documentation:**
 - [Architecture Overview](ARCHITECTURE.md) - Complete system architecture and design
 - [Demo Script](DEMO_SCRIPT.md) - Step-by-step demo walkthrough
+- [Workshop Guide](WORKSHOP_GUIDE.md) - Instructor-led workshop with talking points
+- [Federated Queries](FEDERATED_QUERIES.md) - 15+ federated query examples and patterns
 - [Deployment Guide](DEPLOYMENT.md) - Installation and setup instructions
 - [Services Documentation](SERVICES.md) - Detailed service information
 - [Port Forwarding Setup](PORT_FORWARDS.md) - Persistent port forwarding guide
+
+**External Resources:**
 - [Techzone Collection](https://techzone.ibm.com/collection/watsonxdata-data-labs-demos/journey-affiliate-junction)
 - [Data Labs WUI Framework](https://github.ibm.com/Data-Labs/datalabs-wui-framework)
 

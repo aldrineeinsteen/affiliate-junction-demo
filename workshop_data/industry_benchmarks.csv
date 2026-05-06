@@ -1,0 +1,11 @@
+industry,avg_conversion_rate,avg_time_to_conversion_minutes,benchmark_ctr
+Electronics,0.025,45,0.08
+Fashion,0.032,30,0.12
+Gaming,0.028,60,0.10
+Food Delivery,0.045,15,0.15
+Travel,0.018,120,0.06
+Financial Services,0.015,90,0.05
+Sports Equipment,0.030,40,0.09
+Home Goods,0.035,50,0.11
+Automotive,0.020,75,0.07
+Health,0.028,55,0.09

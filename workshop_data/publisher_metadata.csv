@@ -1,0 +1,11 @@
+publisher_id,publisher_name,category,country,tier,commission_rate
+pub_001,TechBlog Daily,Technology,US,Premium,0.15
+pub_002,Fashion Forward,Fashion,UK,Standard,0.10
+pub_003,Gaming Zone,Gaming,CA,Premium,0.12
+pub_004,Food Lovers,Food,US,Standard,0.08
+pub_005,Travel Tales,Travel,AU,Premium,0.14
+pub_006,Finance Hub,Finance,US,Premium,0.16
+pub_007,Sports Central,Sports,UK,Standard,0.09
+pub_008,Home & Garden,Lifestyle,CA,Standard,0.10
+pub_009,Auto Review,Automotive,US,Premium,0.13
+pub_010,Health & Wellness,Health,UK,Standard,0.11
