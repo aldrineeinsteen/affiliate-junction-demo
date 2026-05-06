@@ -358,13 +358,13 @@ LIMIT 5;
 **Parse the JSON data:**
 
 ```sql
-SELECT 
+SELECT
     publisher_id,
     impressions,
     last_updated,
-    CAST((CURRENT_TIMESTAMP - last_updated) AS BIGINT) / 1000 as seconds_old
+    to_unixtime(CURRENT_TIMESTAMP) - to_unixtime(last_updated) as seconds_old
 FROM hcd.affiliate_junction.publishers
-WHERE publisher_id = 'pub_001';
+WHERE publisher_id = '<From Previous output>';
 ```
 
 **What you're seeing:**
@@ -475,7 +475,7 @@ SELECT
     publishers_id,
     advertisers_id
 FROM impressions_by_minute
-WHERE bucket_date = '2026-05-06 10:30:00'
+WHERE bucket_date = '2026-05-06 11:50:00'
   AND bucket = 0
 LIMIT 10;
 ```
