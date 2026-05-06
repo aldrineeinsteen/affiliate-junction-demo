@@ -25,7 +25,7 @@ Before starting these labs, ensure you have:
 - All services running (verify with `systemctl status`)
 
 ✅ **Access:**
-- watsonx.data UI: `https://<hostname>:9443` (Login: `ibmadmin` / `password`)
+- watsonx.data UI: `https://<hostname>:9443` (Login: `ibmlhadmin` / `password`)
 - Affiliate Junction WUI: `http://<hostname>:10000` (Login: `watsonx` / `watsonx.data`)
 - SSH access to VM
 

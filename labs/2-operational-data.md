@@ -439,7 +439,7 @@ For some operations, native CQL shell is more powerful:
 ssh -p <port> watsonx@<hostname>
 
 # Connect to HCD
-cqlsh localhost 9042
+~/hcd-1.2.3/bin/hcd cqlsh 172.17.0.1 -u cassandra -p cassandra
 
 # Switch to keyspace
 USE affiliate_junction;

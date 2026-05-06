@@ -241,10 +241,13 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import *
 from pyspark.sql.types import *
 from cassandra.cluster import Cluster
+from cassandra.auth import PlainTextAuthProvider
 
 # Configuration
-HCD_HOST = 'localhost'
+HCD_HOST = '172.17.0.1'
 HCD_PORT = 9042
+HCD_USER = 'cassandra'
+HCD_PASSWD = 'cassandra'
 HCD_KEYSPACE = 'affiliate_junction'
 HCD_TABLE = 'user_activity_tracking'
 
@@ -280,7 +283,8 @@ def extract_from_hcd():
     print(f"  Table: {HCD_TABLE}")
     
     # Connect to HCD
-    cluster = Cluster([HCD_HOST], port=HCD_PORT)
+    auth_provider = PlainTextAuthProvider(username=HCD_USER, password=HCD_PASSWD)
+    cluster = Cluster([HCD_HOST], port=HCD_PORT, auth_provider=auth_provider)
     session = cluster.connect(HCD_KEYSPACE)
     
     # Query all recent activity
@@ -423,7 +427,8 @@ def create_hourly_summary(spark):
             sum("clicks").alias("total_clicks"),
             sum("purchases").alias("total_purchases"),
             avg("session_duration_seconds").alias("avg_session_duration_seconds"),
-            avg("total_activities").alias("avg_activities_per_session")
+            avg("total_activities").alias("avg_activities_per_session"),
+            lit(None).cast("array<struct<page_url:string,view_count:bigint>>").alias("top_pages")
         )
     
     # Calculate conversion rate
@@ -557,7 +562,7 @@ Creating Spark session...
 Spark version: 3.3.2
 
 Extracting data from HCD...
-  Host: localhost:9042
+  Host: 172.17.0.1:9042
   Keyspace: affiliate_junction
   Table: user_activity_tracking
   Extracted 1247 records

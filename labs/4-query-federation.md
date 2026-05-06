@@ -518,7 +518,7 @@ SELECT
     ia.total_purchases as historical_purchases,
     ROUND(CAST(ia.total_purchases AS DOUBLE) / NULLIF(ia.total_sessions, 0) * 100, 2) as conversion_rate,
     CASE 
-        WHEN up.preferred_device = h.metadata THEN 'Preferred Device'
+        WHEN up.preferred_device = json_extract_scalar(h.metadata, '$.device') THEN 'Preferred Device'
         ELSE 'Other Device'
     END as device_match
 FROM iceberg_data.reference_data.user_profiles up
@@ -535,7 +535,8 @@ LEFT JOIN (
 ) ia ON up.user_id = ia.user_id
 GROUP BY 
     up.user_name, up.user_tier, up.country, up.preferred_device,
-    ia.total_sessions, ia.total_activities, ia.total_purchases, h.metadata
+    ia.total_sessions, ia.total_activities, ia.total_purchases,
+    json_extract_scalar(h.metadata, '$.device')
 ORDER BY historical_purchases DESC NULLS LAST
 LIMIT 10;
 ```
@@ -546,6 +547,17 @@ LIMIT 10;
 1. `user_profiles` (CSV → Iceberg) - Reference data
 2. `user_activity_tracking` (HCD) - Real-time operational
 3. `user_activity_analytics` (Iceberg) - Historical analytical
+
+**`device_match` CASE:**
+```sql
+CASE 
+    WHEN up.preferred_device = json_extract_scalar(h.metadata, '$.device') THEN 'Preferred Device'
+    ELSE 'Other Device'
+END
+```
+- `h.metadata` is a JSON string (`{"device": "desktop", "browser": "chrome"}`)
+- `json_extract_scalar` extracts the `device` field value for comparison
+- Compares extracted device against the user's preferred device from their profile
 
 **Query Pattern:**
 ```
@@ -582,7 +594,7 @@ WITH user_complete_profile AS (
         COALESCE(ia.total_activities, 0) as total_activities,
         COALESCE(ia.total_purchases, 0) as total_purchases,
         COALESCE(ia.total_page_views, 0) as total_page_views,
-        CURRENT_DATE - up.signup_date as days_since_signup
+        date_diff('day', CAST(up.signup_date AS DATE), CURRENT_DATE) as days_since_signup
     FROM iceberg_data.reference_data.user_profiles up
     LEFT JOIN (
         SELECT 

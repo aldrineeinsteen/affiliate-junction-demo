@@ -23,7 +23,7 @@ A user activity tracking system that captures page views, clicks, and session da
 ## Prerequisites
 
 ✅ Access to watsonx.data UI at `https://<hostname>:9443`  
-✅ Login credentials: `ibmadmin` / `password`  
+✅ Login credentials: `ibmlhadmin` / `password`  
 ✅ HCD catalog configured in watsonx.data  
 ✅ Basic understanding of SQL
 
@@ -34,7 +34,7 @@ A user activity tracking system that captures page views, clicks, and session da
 ### Step 1: Access watsonx.data Query Workspace
 
 1. Open browser and navigate to: `https://<hostname>:9443`
-2. Login with `ibmadmin` / `password`
+2. Login with `ibmlhadmin` / `password`
 3. Click on **"Query workspace"** tab in the top navigation
 
 **What is Query Workspace?**
@@ -148,7 +148,7 @@ Query successful
 ### Step 5: Verify Table Creation
 
 ```sql
-DESCRIBE TABLE hcd.affiliate_junction.user_activity_tracking;
+DESCRIBE hcd.affiliate_junction.user_activity_tracking;
 ```
 
 **Expected Output:**
@@ -287,8 +287,10 @@ from cassandra.cluster import Cluster
 from cassandra.auth import PlainTextAuthProvider
 
 # Configuration
-HCD_HOST = 'localhost'
+HCD_HOST = '172.17.0.1'
 HCD_PORT = 9042
+HCD_USER = 'cassandra'
+HCD_PASSWD = 'cassandra'
 KEYSPACE = 'affiliate_junction'
 TABLE = 'user_activity_tracking'
 
@@ -305,7 +307,8 @@ BROWSERS = ['chrome', 'firefox', 'safari', 'edge']
 def connect_to_hcd():
     """Connect to HCD (Cassandra)"""
     print(f"Connecting to HCD at {HCD_HOST}:{HCD_PORT}...")
-    cluster = Cluster([HCD_HOST], port=HCD_PORT)
+    auth_provider = PlainTextAuthProvider(username=HCD_USER, password=HCD_PASSWD)
+    cluster = Cluster([HCD_HOST], port=HCD_PORT, auth_provider=auth_provider)
     session = cluster.connect(KEYSPACE)
     print(f"Connected to keyspace: {KEYSPACE}")
     return cluster, session
@@ -394,11 +397,13 @@ chmod +x ~/user_activity_generator.py
 
 **Connection Setup:**
 ```python
-cluster = Cluster([HCD_HOST], port=HCD_PORT)
+auth_provider = PlainTextAuthProvider(username=HCD_USER, password=HCD_PASSWD)
+cluster = Cluster([HCD_HOST], port=HCD_PORT, auth_provider=auth_provider)
 session = cluster.connect(KEYSPACE)
 ```
 - Uses existing `cassandra-driver` library (already installed)
-- Connects to local HCD instance
+- Authenticates with HCD using cassandra credentials
+- Connects to HCD instance at `172.17.0.1`
 - Reuses connection for all inserts (efficient)
 
 **Prepared Statements:**
@@ -436,7 +441,7 @@ python3 ~/user_activity_generator.py
 ============================================================
 User Activity Generator
 ============================================================
-Connecting to HCD at localhost:9042...
+Connecting to HCD at 172.17.0.1:9042...
 Connected to keyspace: affiliate_junction
 
 Generating user activity data...
