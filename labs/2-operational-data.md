@@ -136,21 +136,20 @@ ORDER BY timestamp DESC;
 ```sql
 -- Note: This requires querying multiple partitions
 -- Less efficient but sometimes necessary
-SELECT 
+SELECT
     session_id,
     action_type,
     page_url,
     timestamp
 FROM hcd.affiliate_junction.user_activity_tracking
-WHERE user_id = 'user_001'
-ALLOW FILTERING;
+WHERE user_id = 'user_001';
 ```
 
 **Explanation:**
-- `ALLOW FILTERING` - Required when not using complete partition key
-- Queries all partitions for this user_id
+- Queries without complete partition key (missing session_id)
+- Presto will scan multiple partitions for this user_id
 - Slower but acceptable for small datasets
-- Use sparingly in production
+- In cqlsh, this would require `ALLOW FILTERING`
 
 **Pattern 3: Count activities in a session**
 
@@ -165,21 +164,20 @@ WHERE user_id = 'user_001'
 **Pattern 4: Get specific action types**
 
 ```sql
-SELECT 
+SELECT
     page_url,
     timestamp,
     metadata
 FROM hcd.affiliate_junction.user_activity_tracking
 WHERE user_id = 'user_001'
   AND session_id = 'session_1001'
-  AND action_type = 'purchase'
-ALLOW FILTERING;
+  AND action_type = 'purchase';
 ```
 
 **Explanation:**
 - `action_type` is not part of primary key
-- Requires `ALLOW FILTERING`
-- Filters after retrieving partition data
+- Presto filters after retrieving partition data
+- In cqlsh, this would require `ALLOW FILTERING`
 
 ---
 
@@ -192,7 +190,7 @@ The demo uses `impressions_by_minute` table with a bucketing strategy to handle 
 **View the schema:**
 
 ```sql
-DESCRIBE TABLE hcd.affiliate_junction.impressions_by_minute;
+DESCRIBE hcd.affiliate_junction.impressions_by_minute;
 ```
 
 **Key Design Elements:**
@@ -233,14 +231,15 @@ Total: 60 partitions × 83 writes = 5000 writes ✅
 
 ```sql
 SELECT 
+    bucket_date,
+    bucket,
     ts,
     publishers_id,
     advertisers_id,
     cookie_id
 FROM hcd.affiliate_junction.impressions_by_minute
-WHERE bucket_date = TIMESTAMP '2026-05-06 10:30:00'
-  AND bucket = 0
-LIMIT 10;
+WHERE bucket_date >= CURRENT_TIMESTAMP - INTERVAL '1' HOUR
+LIMIT 100;
 ```
 
 **Explanation:**
@@ -256,7 +255,7 @@ SELECT
     bucket,
     COUNT(*) as impression_count
 FROM hcd.affiliate_junction.impressions_by_minute
-WHERE bucket_date = TIMESTAMP '2026-05-06 10:30:00'
+WHERE bucket_date >= CURRENT_TIMESTAMP - INTERVAL '1'
 GROUP BY bucket;
 ```
 
@@ -612,10 +611,13 @@ WHERE name = 'generate_traffic';
    APPLY BATCH;
    ```
 
-3. **Don't use ALLOW FILTERING in production**
-   ```sql
+3. **Avoid queries that require full table scans**
+   ```cql
+   -- In cqlsh, this requires ALLOW FILTERING (inefficient)
    SELECT * FROM table WHERE non_key_column = 'value' ALLOW FILTERING;
    ```
+   - Design tables so queries use partition keys
+   - Avoid filtering on non-key columns
 
 4. **Avoid large partitions (>100MB)**
    - Use bucketing for high-volume data
@@ -693,17 +695,20 @@ Continue to **[Lab 3: Transformation (ETL)](3-transformation-etl.md)** where you
 3. Check if data exists
 4. Verify HCD is running: `systemctl status hcd`
 
-### ALLOW FILTERING Warning
+### ALLOW FILTERING Warning (cqlsh only)
 
-**Warning:** `Cannot execute this query as it might involve data filtering`
+**Warning in cqlsh:** `Cannot execute this query as it might involve data filtering`
 
-**Solution:**
+**Solution for cqlsh:**
 Add `ALLOW FILTERING` to query:
-```sql
+```cql
 SELECT * FROM table WHERE non_key_column = 'value' ALLOW FILTERING;
 ```
 
-**Note:** Use sparingly - indicates inefficient query
+**Note:**
+- `ALLOW FILTERING` is CQL-specific syntax (cqlsh only)
+- Not needed in Query Workspace (Presto) - it filters automatically
+- Use sparingly - indicates inefficient query that scans multiple partitions
 
 ### No Data Returned
 
