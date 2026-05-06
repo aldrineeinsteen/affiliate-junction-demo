@@ -94,22 +94,32 @@ You'll create a `user_activity_tracking` table to track user sessions on a websi
 
 ### Step 4: Create the Table
 
-**Copy and execute this SQL in Query Workspace:**
+**Connect to cqlsh:**
 
-```sql
-CREATE TABLE IF NOT EXISTS hcd.affiliate_junction.user_activity_tracking (
-    user_id VARCHAR,
-    session_id VARCHAR,
-    page_url VARCHAR,
-    action_type VARCHAR,
+```bash
+/opt/hcd-1.2.5/bin/cqlsh 10.243.0.34 9042
+```
+
+**Switch to the keyspace:**
+
+```cql
+USE affiliate_junction;
+```
+
+**Create the table:**
+
+```cql
+CREATE TABLE IF NOT EXISTS user_activity_tracking (
+    user_id TEXT,
+    session_id TEXT,
+    page_url TEXT,
+    action_type TEXT,
     timestamp TIMESTAMP,
-    metadata VARCHAR,
+    metadata TEXT,
     PRIMARY KEY ((user_id, session_id), timestamp)
-) WITH (
-    clustering_order_by = 'timestamp DESC',
-    default_time_to_live = 600,
-    gc_grace_seconds = 0
-);
+) WITH CLUSTERING ORDER BY (timestamp DESC)
+AND default_time_to_live = 600
+AND gc_grace_seconds = 0;
 ```
 
 **Understanding Each Part:**
@@ -118,16 +128,18 @@ CREATE TABLE IF NOT EXISTS hcd.affiliate_junction.user_activity_tracking (
 - Creates table only if it doesn't already exist
 - Safe to run multiple times
 
-**`hcd.affiliate_junction.user_activity_tracking`**
-- `hcd` = Catalog name (HCD/Cassandra)
-- `affiliate_junction` = Keyspace (like a database schema)
-- `user_activity_tracking` = Table name
+**`user_activity_tracking`**
+- Table name in the current keyspace (affiliate_junction)
+
+**`TEXT` data type**
+- CQL's string type (equivalent to VARCHAR in SQL)
+- Used for user_id, session_id, page_url, etc.
 
 **`PRIMARY KEY ((user_id, session_id), timestamp)`**
 - `(user_id, session_id)` = **Partition Key** - Determines which node stores the data
 - `timestamp` = **Clustering Key** - Orders data within the partition
 
-**`clustering_order_by = 'timestamp DESC'`**
+**`WITH CLUSTERING ORDER BY (timestamp DESC)`**
 - Stores newest records first
 - Efficient for "recent activity" queries
 
@@ -142,17 +154,27 @@ CREATE TABLE IF NOT EXISTS hcd.affiliate_junction.user_activity_tracking (
 
 **Expected Output:**
 ```
-Query successful
+Warnings :
+Aggregation query used without partition key
 ```
+(This warning is normal and can be ignored)
 
 ### Step 5: Verify Table Creation
 
-```sql
-DESCRIBE TABLE hcd.affiliate_junction.user_activity_tracking;
+**In cqlsh:**
+
+```cql
+DESCRIBE TABLE user_activity_tracking;
 ```
 
 **Expected Output:**
 You'll see the complete table definition including all columns and properties.
+
+**You can also verify via watsonx.data Query Workspace:**
+
+```sql
+DESCRIBE hcd.affiliate_junction.user_activity_tracking;
+```
 
 ---
 
@@ -160,17 +182,17 @@ You'll see the complete table definition including all columns and properties.
 
 ### Step 6: Insert Your First Record
 
-**Execute this INSERT statement:**
+**In cqlsh, execute this INSERT statement:**
 
-```sql
-INSERT INTO hcd.affiliate_junction.user_activity_tracking 
+```cql
+INSERT INTO user_activity_tracking
 (user_id, session_id, page_url, action_type, timestamp, metadata)
 VALUES (
     'user_001',
-    'session_' || CAST(FLOOR(RANDOM() * 10000) AS VARCHAR),
+    'session_1001',
     '/products/laptop',
     'page_view',
-    CURRENT_TIMESTAMP,
+    toTimestamp(now()),
     '{"device": "desktop", "browser": "chrome"}'
 );
 ```
@@ -178,82 +200,99 @@ VALUES (
 **Understanding the INSERT:**
 
 **`INSERT INTO ... VALUES`**
-- Standard SQL insert syntax
+- Standard CQL insert syntax
 - Inserts one row at a time
 
-**`'session_' || CAST(FLOOR(RANDOM() * 10000) AS VARCHAR)`**
-- Generates random session ID like "session_4523"
-- `RANDOM()` = Random number between 0 and 1
-- `FLOOR(RANDOM() * 10000)` = Random integer 0-9999
-- `||` = String concatenation operator
-
-**`CURRENT_TIMESTAMP`**
-- Built-in function that returns current time
-- Automatically uses server time
+**`toTimestamp(now())`**
+- CQL function that returns current timestamp
+- `now()` generates a UUID v1 with current time
+- `toTimestamp()` converts it to TIMESTAMP type
 
 **`'{"device": "desktop", "browser": "chrome"}'`**
-- JSON string stored as VARCHAR
+- JSON string stored as TEXT
 - Can store any additional metadata
 
 **Expected Output:**
 ```
-1 row inserted
+(No output means success in cqlsh)
 ```
 
 ### Step 7: Query Your Data
 
-```sql
-SELECT * FROM hcd.affiliate_junction.user_activity_tracking 
-WHERE user_id = 'user_001'
-LIMIT 10;
+**In cqlsh:**
+
+```cql
+SELECT * FROM user_activity_tracking
+WHERE user_id = 'user_001' AND session_id = 'session_1001';
 ```
 
 **Expected Output:**
 You should see the record you just inserted.
 
-### Step 8: Insert Multiple Records
-
-**Execute this to insert 5 different actions:**
+**You can also query via watsonx.data Query Workspace:**
 
 ```sql
--- Page view
-INSERT INTO hcd.affiliate_junction.user_activity_tracking 
-VALUES ('user_001', 'session_1001', '/home', 'page_view', CURRENT_TIMESTAMP, '{"referrer": "google"}');
-
--- Click action
-INSERT INTO hcd.affiliate_junction.user_activity_tracking 
-VALUES ('user_001', 'session_1001', '/products', 'click', CURRENT_TIMESTAMP, '{"element": "nav_menu"}');
-
--- Scroll action
-INSERT INTO hcd.affiliate_junction.user_activity_tracking 
-VALUES ('user_001', 'session_1001', '/products', 'scroll', CURRENT_TIMESTAMP, '{"depth": "75%"}');
-
--- Add to cart
-INSERT INTO hcd.affiliate_junction.user_activity_tracking 
-VALUES ('user_001', 'session_1001', '/products/laptop', 'add_to_cart', CURRENT_TIMESTAMP, '{"product_id": "LAP123"}');
-
--- Purchase
-INSERT INTO hcd.affiliate_junction.user_activity_tracking 
-VALUES ('user_001', 'session_1001', '/checkout', 'purchase', CURRENT_TIMESTAMP, '{"amount": 999.99}');
+SELECT * FROM hcd.affiliate_junction.user_activity_tracking
+WHERE user_id = 'user_001' AND session_id = 'session_1001'
+LIMIT 10;
 ```
 
-**Query to see the session timeline:**
+### Step 8: Insert Multiple Records
 
-```sql
-SELECT 
+**In cqlsh, execute these to insert 5 different actions:**
+
+```cql
+-- Page view
+INSERT INTO user_activity_tracking
+VALUES ('user_001', 'session_1001', '/home', 'page_view', toTimestamp(now()), '{"referrer": "google"}');
+
+-- Click action
+INSERT INTO user_activity_tracking
+VALUES ('user_001', 'session_1001', '/products', 'click', toTimestamp(now()), '{"element": "nav_menu"}');
+
+-- Scroll action
+INSERT INTO user_activity_tracking
+VALUES ('user_001', 'session_1001', '/products', 'scroll', toTimestamp(now()), '{"depth": "75%"}');
+
+-- Add to cart
+INSERT INTO user_activity_tracking
+VALUES ('user_001', 'session_1001', '/products/laptop', 'add_to_cart', toTimestamp(now()), '{"product_id": "LAP123"}');
+
+-- Purchase
+INSERT INTO user_activity_tracking
+VALUES ('user_001', 'session_1001', '/checkout', 'purchase', toTimestamp(now()), '{"amount": 999.99}');
+```
+
+**Query to see the session timeline in cqlsh:**
+
+```cql
+SELECT
     action_type,
     page_url,
     timestamp,
     metadata
-FROM hcd.affiliate_junction.user_activity_tracking 
-WHERE user_id = 'user_001' 
+FROM user_activity_tracking
+WHERE user_id = 'user_001'
+  AND session_id = 'session_1001';
+```
+
+**Or via watsonx.data Query Workspace:**
+
+```sql
+SELECT
+    action_type,
+    page_url,
+    timestamp,
+    metadata
+FROM hcd.affiliate_junction.user_activity_tracking
+WHERE user_id = 'user_001'
   AND session_id = 'session_1001'
 ORDER BY timestamp DESC;
 ```
 
 **What You're Seeing:**
 - Complete user journey through your website
-- Actions ordered chronologically (newest first)
+- Actions ordered chronologically (newest first in Query Workspace)
 - All data for one session grouped together
 
 ---
@@ -287,7 +326,7 @@ from cassandra.cluster import Cluster
 from cassandra.auth import PlainTextAuthProvider
 
 # Configuration
-HCD_HOST = 'localhost'
+HCD_HOST = '10.243.0.34'
 HCD_PORT = 9042
 KEYSPACE = 'affiliate_junction'
 TABLE = 'user_activity_tracking'

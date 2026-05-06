@@ -278,24 +278,31 @@ bucket | impression_count
 
 ### Step 5: Create Your Own Bucketed Table
 
-Let's create a bucketed version of your activity tracking:
+Let's create a bucketed version of your activity tracking via cqlsh:
 
-```sql
-CREATE TABLE IF NOT EXISTS hcd.affiliate_junction.user_activity_by_minute (
+**Connect to cqlsh:**
+
+```bash
+/opt/hcd-1.2.5/bin/cqlsh 10.243.0.34 9042
+USE affiliate_junction;
+```
+
+**Create the bucketed table:**
+
+```cql
+CREATE TABLE IF NOT EXISTS user_activity_by_minute (
     minute_bucket TIMESTAMP,
     bucket SMALLINT,
     ts TIMESTAMP,
-    user_id VARCHAR,
-    session_id VARCHAR,
-    action_type VARCHAR,
-    page_url VARCHAR,
-    metadata VARCHAR,
+    user_id TEXT,
+    session_id TEXT,
+    action_type TEXT,
+    page_url TEXT,
+    metadata TEXT,
     PRIMARY KEY ((minute_bucket, bucket), ts, user_id, session_id)
-) WITH (
-    clustering_order_by = 'ts DESC',
-    default_time_to_live = 600,
-    gc_grace_seconds = 0
-);
+) WITH CLUSTERING ORDER BY (ts DESC, user_id ASC, session_id ASC)
+AND default_time_to_live = 600
+AND gc_grace_seconds = 0;
 ```
 
 **Understanding the Design:**
@@ -369,41 +376,54 @@ WHERE publisher_id = 'pub_001';
 
 ### Step 7: Create Your Own Statistics Table
 
-Let's create a statistics table for your user activity:
+Let's create a statistics table for your user activity via cqlsh:
 
-```sql
-CREATE TABLE IF NOT EXISTS hcd.affiliate_junction.user_activity_stats (
-    user_id VARCHAR PRIMARY KEY,
+**In cqlsh:**
+
+```cql
+CREATE TABLE IF NOT EXISTS user_activity_stats (
+    user_id TEXT PRIMARY KEY,
     total_sessions BIGINT,
     total_activities BIGINT,
     last_activity TIMESTAMP,
-    activity_breakdown VARCHAR,
+    activity_breakdown TEXT,
     last_updated TIMESTAMP
-) WITH (
-    default_time_to_live = 3600,
-    gc_grace_seconds = 0
-);
+) WITH default_time_to_live = 3600
+AND gc_grace_seconds = 0;
 ```
 
 **Insert sample statistics:**
 
-```sql
-INSERT INTO hcd.affiliate_junction.user_activity_stats
+```cql
+INSERT INTO user_activity_stats
 (user_id, total_sessions, total_activities, last_activity, activity_breakdown, last_updated)
 VALUES (
     'user_001',
     5,
     47,
-    CURRENT_TIMESTAMP,
+    toTimestamp(now()),
     '{"page_view": 20, "click": 15, "scroll": 8, "add_to_cart": 3, "purchase": 1}',
-    CURRENT_TIMESTAMP
+    toTimestamp(now())
 );
 ```
 
-**Query the statistics:**
+**Query the statistics in cqlsh:**
+
+```cql
+SELECT
+    user_id,
+    total_sessions,
+    total_activities,
+    activity_breakdown,
+    last_activity
+FROM user_activity_stats
+WHERE user_id = 'user_001';
+```
+
+**Or query via watsonx.data Query Workspace:**
 
 ```sql
-SELECT 
+SELECT
     user_id,
     total_sessions,
     total_activities,
