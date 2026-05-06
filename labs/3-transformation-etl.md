@@ -260,7 +260,8 @@ HCD_TABLE = 'user_activity_tracking'
 # Presto configuration
 PRESTO_HOST = os.getenv('PRESTO_HOST', 'localhost')
 PRESTO_PORT = int(os.getenv('PRESTO_PORT', '8443'))
-PRESTO_USER = os.getenv('PRESTO_USER', 'admin')
+PRESTO_USER = os.getenv('PRESTO_USER', 'ibmlhadmin')
+PRESTO_PASSWORD = os.getenv('PRESTO_PASSWD', 'password')
 PRESTO_CATALOG = 'iceberg_data'
 PRESTO_SCHEMA = 'affiliate_junction'
 
@@ -409,14 +410,6 @@ def load_to_iceberg(spark, df):
     # Connect to Presto
     print(f"  Connecting to Presto at {PRESTO_HOST}:{PRESTO_PORT}...")
     
-    # Create a custom session that doesn't verify SSL
-    import requests
-    from requests.adapters import HTTPAdapter
-    from urllib3.util.ssl_ import create_urllib3_context
-    
-    session = requests.Session()
-    session.verify = False
-    
     conn = prestodb.dbapi.connect(
         host=PRESTO_HOST,
         port=PRESTO_PORT,
@@ -424,8 +417,14 @@ def load_to_iceberg(spark, df):
         catalog=PRESTO_CATALOG,
         schema=PRESTO_SCHEMA,
         http_scheme='https',
-        http_session=session
+        auth=prestodb.auth.BasicAuthentication(PRESTO_USER, PRESTO_PASSWORD)
     )
+    
+    # Disable SSL verification for self-signed certificates
+    # This matches the pattern used in affiliate_common/database_connections.py
+    conn._http_session.verify = False
+    print("  ✓ Connected with authentication, SSL verification disabled")
+    
     cursor = conn.cursor()
     
     # Convert DataFrame to list
@@ -479,58 +478,78 @@ def load_to_iceberg(spark, df):
     
     print(f"  ✓ Loaded {total_records} records in {batches_processed} batches")
 
-def create_hourly_summary(spark):
-    """Create hourly summary from session analytics"""
+def create_hourly_summary():
+    """Create hourly summary from session analytics using Presto"""
     print(f"\nCreating hourly summary...")
     
-    table_name = f"{ICEBERG_CATALOG}.{ICEBERG_SCHEMA}.{ICEBERG_TABLE}"
+    # Connect to Presto
+    print(f"  Connecting to Presto at {PRESTO_HOST}:{PRESTO_PORT}...")
     
-    # Read session analytics
-    df = spark.read.format("iceberg").load(table_name)
-    
-    if df.count() == 0:
-        print("  No data for summary")
-        return
-    
-    # Aggregate by hour
-    hourly = df.withColumn("hour_bucket", date_trunc("hour", col("session_start"))) \
-        .groupBy("hour_bucket") \
-        .agg(
-            countDistinct("user_id").alias("total_users"),
-            count("session_id").alias("total_sessions"),
-            sum("total_activities").alias("total_activities"),
-            sum("page_views").alias("total_page_views"),
-            sum("clicks").alias("total_clicks"),
-            sum("purchases").alias("total_purchases"),
-            avg("session_duration_seconds").alias("avg_session_duration_seconds"),
-            avg("total_activities").alias("avg_activities_per_session")
-        )
-    
-    # Calculate conversion rate
-    hourly = hourly.withColumn(
-        "conversion_rate",
-        round(col("total_purchases") / col("total_sessions") * 100, 2)
+    conn = prestodb.dbapi.connect(
+        host=PRESTO_HOST,
+        port=PRESTO_PORT,
+        user=PRESTO_USER,
+        catalog=PRESTO_CATALOG,
+        schema=PRESTO_SCHEMA,
+        http_scheme='https',
+        auth=prestodb.auth.BasicAuthentication(PRESTO_USER, PRESTO_PASSWORD)
     )
     
-    # Add created_at
-    hourly = hourly.withColumn("created_at", current_timestamp())
+    # Disable SSL verification
+    conn._http_session.verify = False
+    cursor = conn.cursor()
     
-    print(f"  Created {hourly.count()} hourly summaries")
+    # Query to create hourly summary
+    summary_query = f"""
+    INSERT INTO {ICEBERG_CATALOG}.{ICEBERG_SCHEMA}.user_activity_hourly
+    SELECT
+        date_trunc('hour', session_start) as hour_bucket,
+        COUNT(DISTINCT user_id) as total_users,
+        COUNT(session_id) as total_sessions,
+        SUM(total_activities) as total_activities,
+        SUM(page_views) as total_page_views,
+        SUM(clicks) as total_clicks,
+        SUM(purchases) as total_purchases,
+        ROUND(CAST(SUM(purchases) AS DOUBLE) / CAST(COUNT(session_id) AS DOUBLE) * 100, 2) as conversion_rate,
+        AVG(session_duration_seconds) as avg_session_duration_seconds,
+        AVG(CAST(total_activities AS DOUBLE)) as avg_activities_per_session,
+        ARRAY[] as top_pages,
+        CURRENT_TIMESTAMP as created_at
+    FROM {ICEBERG_CATALOG}.{ICEBERG_SCHEMA}.{ICEBERG_TABLE}
+    GROUP BY date_trunc('hour', session_start)
+    """
     
-    # Show results
-    print("\n  Hourly Summary:")
-    hourly.select(
-        "hour_bucket", "total_users", "total_sessions", 
-        "total_activities", "conversion_rate"
-    ).show(truncate=False)
+    print(f"  Aggregating session data by hour...")
+    cursor.execute(summary_query)
     
-    # Write to hourly table
-    hourly_table = f"{ICEBERG_CATALOG}.{ICEBERG_SCHEMA}.user_activity_hourly"
-    hourly.writeTo(hourly_table) \
-        .using("iceberg") \
-        .append()
+    # Query to show results
+    select_query = f"""
+    SELECT
+        hour_bucket,
+        total_users,
+        total_sessions,
+        total_activities,
+        conversion_rate
+    FROM {ICEBERG_CATALOG}.{ICEBERG_SCHEMA}.user_activity_hourly
+    ORDER BY hour_bucket DESC
+    LIMIT 10
+    """
     
-    print(f"  Loaded to {hourly_table}")
+    cursor.execute(select_query)
+    results = cursor.fetchall()
+    
+    print(f"\n  Hourly Summary (latest 10 hours):")
+    print(f"  {'Hour':<20} {'Users':<8} {'Sessions':<10} {'Activities':<12} {'Conv %':<8}")
+    print(f"  {'-'*20} {'-'*8} {'-'*10} {'-'*12} {'-'*8}")
+    
+    for row in results:
+        hour = row[0].strftime('%Y-%m-%d %H:%M') if row[0] else 'N/A'
+        print(f"  {hour:<20} {row[1]:<8} {row[2]:<10} {row[3]:<12} {row[4]:<8}")
+    
+    cursor.close()
+    conn.close()
+    
+    print(f"  ✓ Hourly summary created")
 
 def main():
     """Main ETL execution"""
@@ -552,7 +571,7 @@ def main():
         load_to_iceberg(spark, session_analytics)
         
         # Create hourly summary
-        create_hourly_summary(spark)
+        create_hourly_summary()
         
         print("\n" + "=" * 60)
         print("ETL Complete!")
