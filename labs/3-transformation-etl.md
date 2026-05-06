@@ -514,7 +514,7 @@ def create_hourly_summary():
         AVG(session_duration_seconds) as avg_session_duration_seconds,
         AVG(CAST(total_activities AS DOUBLE)) as avg_activities_per_session,
         ARRAY[] as top_pages,
-        CURRENT_TIMESTAMP as created_at
+        CAST(CURRENT_TIMESTAMP AS TIMESTAMP) as created_at
     FROM {ICEBERG_CATALOG}.{ICEBERG_SCHEMA}.{ICEBERG_TABLE}
     GROUP BY date_trunc('hour', session_start)
     """
