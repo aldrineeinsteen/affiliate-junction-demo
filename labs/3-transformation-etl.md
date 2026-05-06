@@ -238,12 +238,18 @@ import os
 import sys
 from datetime import datetime, timedelta
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import *
+from pyspark.sql.functions import (
+    col, count, sum, avg, min, max,
+    countDistinct, collect_set, collect_list,
+    first, last, when, lit,
+    current_timestamp, unix_timestamp, from_unixtime,
+    from_json, to_json, struct
+)
 from pyspark.sql.types import *
 from cassandra.cluster import Cluster
 
 # Configuration
-HCD_HOST = 'localhost'
+HCD_HOST = '10.243.0.34'
 HCD_PORT = 9042
 HCD_KEYSPACE = 'affiliate_junction'
 HCD_TABLE = 'user_activity_tracking'
