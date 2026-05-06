@@ -247,12 +247,22 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.types import *
 from cassandra.cluster import Cluster
+import prestodb
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Configuration
 HCD_HOST = '10.243.0.34'
 HCD_PORT = 9042
 HCD_KEYSPACE = 'affiliate_junction'
 HCD_TABLE = 'user_activity_tracking'
+
+# Presto configuration
+PRESTO_HOST = os.getenv('PRESTO_HOST', 'localhost')
+PRESTO_PORT = int(os.getenv('PRESTO_PORT', '8443'))
+PRESTO_USER = os.getenv('PRESTO_USER', 'admin')
+PRESTO_CATALOG = 'iceberg_data'
+PRESTO_SCHEMA = 'affiliate_junction'
 
 ICEBERG_CATALOG = 'iceberg_data'
 ICEBERG_SCHEMA = 'affiliate_junction'
@@ -386,24 +396,88 @@ def transform_to_session_analytics(spark, raw_data):
     return session_analytics
 
 def load_to_iceberg(spark, df):
-    """Load transformed data to Iceberg table"""
+    """Load transformed data to Iceberg table via Presto"""
     if df is None or df.count() == 0:
         print("\nNo data to load")
         return
     
-    print(f"\nLoading to Iceberg...")
+    print(f"\nLoading to Iceberg via Presto...")
     print(f"  Catalog: {ICEBERG_CATALOG}")
     print(f"  Schema: {ICEBERG_SCHEMA}")
     print(f"  Table: {ICEBERG_TABLE}")
     
-    table_name = f"{ICEBERG_CATALOG}.{ICEBERG_SCHEMA}.{ICEBERG_TABLE}"
+    # Connect to Presto
+    print(f"  Connecting to Presto at {PRESTO_HOST}:{PRESTO_PORT}...")
     
-    # Write to Iceberg table
-    df.writeTo(table_name) \
-        .using("iceberg") \
-        .append()
+    # Create a custom session that doesn't verify SSL
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.ssl_ import create_urllib3_context
     
-    print(f"  Loaded {df.count()} records")
+    session = requests.Session()
+    session.verify = False
+    
+    conn = prestodb.dbapi.connect(
+        host=PRESTO_HOST,
+        port=PRESTO_PORT,
+        user=PRESTO_USER,
+        catalog=PRESTO_CATALOG,
+        schema=PRESTO_SCHEMA,
+        http_scheme='https',
+        http_session=session
+    )
+    cursor = conn.cursor()
+    
+    # Convert DataFrame to list
+    data = df.collect()
+    total_records = len(data)
+    
+    print(f"  Converting {total_records} records...")
+    
+    # Process in batches for better performance
+    batch_size = 1000
+    batches_processed = 0
+    
+    for i in range(0, total_records, batch_size):
+        batch = data[i:i + batch_size]
+        batch_num = (i // batch_size) + 1
+        total_batches = (total_records + batch_size - 1) // batch_size
+        
+        print(f"  Processing batch {batch_num}/{total_batches} ({len(batch)} records)")
+        
+        # Build VALUES clause
+        values_list = []
+        for row in batch:
+            # Format values, handling None/NULL
+            user_id = row.user_id if row.user_id else 'NULL'
+            session_id = row.session_id if row.session_id else 'NULL'
+            total_activities = row.total_activities if row.total_activities is not None else 0
+            page_views = row.page_views if row.page_views is not None else 0
+            clicks = row.clicks if row.clicks is not None else 0
+            purchases = row.purchases if row.purchases is not None else 0
+            converted = 'true' if row.converted else 'false'
+            
+            values_list.append(
+                f"('{user_id}', '{session_id}', {total_activities}, "
+                f"{page_views}, {clicks}, {purchases}, {converted})"
+            )
+        
+        values_clause = ", ".join(values_list)
+        
+        # Execute INSERT via Presto
+        insert_query = f"""
+        INSERT INTO {ICEBERG_CATALOG}.{ICEBERG_SCHEMA}.{ICEBERG_TABLE}
+        (user_id, session_id, total_activities, page_views, clicks, purchases, converted)
+        VALUES {values_clause}
+        """
+        
+        cursor.execute(insert_query)
+        batches_processed += 1
+    
+    cursor.close()
+    conn.close()
+    
+    print(f"  ✓ Loaded {total_records} records in {batches_processed} batches")
 
 def create_hourly_summary(spark):
     """Create hourly summary from session analytics"""
