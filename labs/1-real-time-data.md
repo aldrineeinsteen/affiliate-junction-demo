@@ -243,23 +243,23 @@ LIMIT 10;
 
 ```cql
 -- Page view
-INSERT INTO user_activity_tracking
+INSERT INTO user_activity_tracking (user_id, session_id, page_url, action_type, timestamp, metadata)
 VALUES ('user_001', 'session_1001', '/home', 'page_view', toTimestamp(now()), '{"referrer": "google"}');
 
 -- Click action
-INSERT INTO user_activity_tracking
+INSERT INTO user_activity_tracking (user_id, session_id, page_url, action_type, timestamp, metadata)
 VALUES ('user_001', 'session_1001', '/products', 'click', toTimestamp(now()), '{"element": "nav_menu"}');
 
 -- Scroll action
-INSERT INTO user_activity_tracking
+INSERT INTO user_activity_tracking (user_id, session_id, page_url, action_type, timestamp, metadata)
 VALUES ('user_001', 'session_1001', '/products', 'scroll', toTimestamp(now()), '{"depth": "75%"}');
 
 -- Add to cart
-INSERT INTO user_activity_tracking
+INSERT INTO user_activity_tracking (user_id, session_id, page_url, action_type, timestamp, metadata)
 VALUES ('user_001', 'session_1001', '/products/laptop', 'add_to_cart', toTimestamp(now()), '{"product_id": "LAP123"}');
 
 -- Purchase
-INSERT INTO user_activity_tracking
+INSERT INTO user_activity_tracking (user_id, session_id, page_url, action_type, timestamp, metadata)
 VALUES ('user_001', 'session_1001', '/checkout', 'purchase', toTimestamp(now()), '{"amount": 999.99}');
 ```
 
@@ -326,7 +326,7 @@ from cassandra.cluster import Cluster
 from cassandra.auth import PlainTextAuthProvider
 
 # Configuration
-HCD_HOST = '10.243.0.34'
+HCD_HOST = '<your_hcd_host>'
 HCD_PORT = 9042
 KEYSPACE = 'affiliate_junction'
 TABLE = 'user_activity_tracking'
