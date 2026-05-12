@@ -16,8 +16,8 @@ HCD_VERSION="1.2.5"
 HCD_INSTALL_DIR="/opt/hcd-${HCD_VERSION}"
 
 # Download URLs
-WXD_BOX_URL="https://ibm.box.com/shared/static/0rokzqg8usghnxq5qsttzuhkb48izdxj"
-HCD_BOX_URL="https://ibm.box.com/shared/static/3cn9cj7rh4ninxkfcjpj49j9j8l53l6x"
+WXD_BOX_URL="https://ibm.box.com/s/2ikv71lspjefupb90toavzw63na6727g"
+HCD_BOX_URL="https://ibm.box.com/s/4hlgwdoix1ptebrpiipl672h7nqdf68x"
 
 # Component names
 KIND_CLUSTER="kind-wxd"
